@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>水产批发记账系统</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🐟 水产批发记账系统</h1>
+            <div class="nav-tabs">
+                <button class="tab-btn active" data-tab="dashboard">数据看板</button>
+                <button class="tab-btn" data-tab="income">销售管理</button>
+                <button class="tab-btn" data-tab="expense">支出管理</button>
+                <button class="tab-btn" data-tab="customers">客户管理</button>
+                <button class="tab-btn" data-tab="products">产品管理</button>
+                <button class="tab-btn" data-tab="report">报表分析</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- 数据看板 -->
+            <section id="dashboard" class="tab-content active">
+                <div class="dashboard-grid">
+                    <div class="stat-card income">
+                        <div class="stat-icon">💰</div>
+                        <div class="stat-content">
+                            <h3>今日销售额</h3>
+                            <p class="stat-value" id="todaySales">¥0.00</p>
+                            <p class="stat-sub">今日订单: <span id="todayOrders">0</span> 笔</p>
+                        </div>
+                    </div>
+                    <div class="stat-card expense">
+                        <div class="stat-icon">💸</div>
+                        <div class="stat-content">
+                            <h3>今日支出</h3>
+                            <p class="stat-value" id="todayExpense">¥0.00</p>
+                            <p class="stat-sub">今日利润: <span id="todayProfit">¥0.00</span></p>
+                        </div>
+                    </div>
+                    <div class="stat-card total">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-content">
+                            <h3>本月销售</h3>
+                            <p class="stat-value" id="monthSales">¥0.00</p>
+                            <p class="stat-sub">本月支出: <span id="monthExpense">¥0.00</span></p>
+                        </div>
+                    </div>
+                    <div class="stat-card weight">
+                        <div class="stat-icon">⚖️</div>
+                        <div class="stat-content">
+                            <h3>本月销量</h3>
+                            <p class="stat-value" id="monthWeight">0 斤</p>
+                            <p class="stat-sub">平均单价: ¥<span id="avgPrice">0.00</span>/斤</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-charts">
+                    <div class="chart-card">
+                        <h3>近7天销售趋势</h3>
+                        <canvas id="salesTrendChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>产品销售占比</h3>
+                        <canvas id="productPieChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>支出分类统计</h3>
+                        <canvas id="expensePieChart"></canvas>
+                    </div>
+                    <div class="chart-card">
+                        <h3>客户销售额排行</h3>
+                        <canvas id="customerBarChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 销售管理 -->
+            <section id="income" class="tab-content">
+                <div class="form-container">
+                    <h2>📝 添加销售记录</h2>
+                    <form id="salesForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>客户</label>
+                                <select id="salesCustomer" required>
+                                    <option value="">选择客户</option>
+                                </select>
+                                <button type="button" class="btn-small" onclick="openCustomerModal()">+ 添加客户</button>
+                            </div>
+                            <div class="form-group">
+                                <label>产品</label>
+                                <select id="salesProduct" required>
+                                    <option value="">选择产品</option>
+                                </select>
+                                <button type="button" class="btn-small" onclick="openProductModal()">+ 添加产品</button>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>斤数</label>
+                                <input type="number" id="salesWeight" step="0.1" min="0.1" required placeholder="0.0">
+                            </div>
+                            <div class="form-group">
+                                <label>单价 (元/斤)</label>
+                                <input type="number" id="salesPrice" step="0.01" min="0.01" required placeholder="0.00">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>总金额 (自动计算)</label>
+                            <input type="text" id="salesTotalAmount" readonly placeholder="¥0.00">
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>销售日期</label>
+                                <input type="date" id="salesDate" required>
+                            </div>
+                            <div class="form-group">
+                                <label>付款状态</label>
+                                <select id="salesPaymentStatus">
+                                    <option value="paid">已付款</option>
+                                    <option value="unpaid">未付款</option>
+                                    <option value="partial">部分付款</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>备注</label>
+                            <textarea id="salesNotes" rows="2" placeholder="添加备注信息..."></textarea>
+                        </div>
+                        <button type="submit" class="btn-submit">保存销售记录</button>
+                    </form>
+                </div>
+
+                <div class="list-container">
+                    <h3>📋 销售记录</h3>
+                    <div class="filter-bar">
+                        <select id="salesFilterCustomer">
+                            <option value="all">全部客户</option>
+                        </select>
+                        <select id="salesFilterProduct">
+                            <option value="all">全部产品</option>
+                        </select>
+                        <select id="salesFilterStatus">
+                            <option value="all">全部状态</option>
+                            <option value="paid">已付款</option>
+                            <option value="unpaid">未付款</option>
+                            <option value="partial">部分付款</option>
+                        </select>
+                        <input type="date" id="salesFilterDateStart">
+                        <input type="date" id="salesFilterDateEnd">
+                        <button class="btn-small" onclick="clearSalesFilters()">清除</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>日期</th>
+                                    <th>客户</th>
+                                    <th>产品</th>
+                                    <th>斤数</th>
+                                    <th>单价</th>
+                                    <th>金额</th>
+                                    <th>状态</th>
+                                    <th>备注</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="salesTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 支出管理 -->
+            <section id="expense" class="tab-content">
+                <div class="form-container">
+                    <h2>💸 添加支出记录</h2>
+                    <form id="expenseForm">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>支出分类</label>
+                                <select id="expenseCategory" required>
+                                    <option value="">选择分类</option>
+                                    <option value="薪资">薪资</option>
+                                    <option value="车辆费用">车辆费用</option>
+                                    <option value="油费">油费</option>
+                                    <option value="店面">店面</option>
+                                    <option value="水电">水电</option>
+                                    <option value="进货成本">进货成本</option>
+                                    <option value="运输费">运输费</option>
+                                    <option value="包装费">包装费</option>
+                                    <option value="其他">其他</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>金额</label>
+                                <input type="number" id="expenseAmount" step="0.01" min="0.01" required placeholder="0.00">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>支出日期</label>
+                                <input type="date" id="expenseDate" required>
+                            </div>
+                            <div class="form-group">
+                                <label>支付方式</label>
+                                <select id="expensePaymentMethod">
+                                    <option value="现金">现金</option>
+                                    <option value="银行转账">银行转账</option>
+                                    <option value="微信">微信</option>
+                                    <option value="支付宝">支付宝</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>备注</label>
+                            <textarea id="expenseNotes" rows="2" placeholder="添加备注信息..."></textarea>
+                        </div>
+                        <button type="submit" class="btn-submit">保存支出记录</button>
+                    </form>
+                </div>
+
+                <div class="list-container">
+                    <h3>📋 支出记录</h3>
+                    <div class="filter-bar">
+                        <select id="expenseFilterCategory">
+                            <option value="all">全部分类</option>
+                            <option value="薪资">薪资</option>
+                            <option value="车辆费用">车辆费用</option>
+                            <option value="油费">油费</option>
+                            <option value="店面">店面</option>
+                            <option value="水电">水电</option>
+                            <option value="进货成本">进货成本</option>
+                            <option value="运输费">运输费</option>
+                            <option value="包装费">包装费</option>
+                            <option value="其他">其他</option>
+                        </select>
+                        <input type="date" id="expenseFilterDateStart">
+                        <input type="date" id="expenseFilterDateEnd">
+                        <button class="btn-small" onclick="clearExpenseFilters()">清除</button>
+                    </div>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>日期</th>
+                                    <th>分类</th>
+                                    <th>金额</th>
+                                    <th>支付方式</th>
+                                    <th>备注</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="expenseTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 客户管理 -->
+            <section id="customers" class="tab-content">
+                <div class="form-container">
+                    <h2>👤 添加客户</h2>
+                    <form id="customerForm">
+                        <div class="form-group">
+                            <label>客户名称</label>
+                            <input type="text" id="customerName" required placeholder="输入客户名称">
+                        </div>
+                        <div class="form-group">
+                            <label>联系电话</label>
+                            <input type="tel" id="customerPhone" placeholder="输入联系电话">
+                        </div>
+                        <div class="form-group">
+                            <label>地址</label>
+                            <input type="text" id="customerAddress" placeholder="输入客户地址">
+                        </div>
+                        <div class="form-group">
+                            <label>客户类型</label>
+                            <select id="customerType">
+                                <option value="regular">长期客户</option>
+                                <option value="wholesale">批发商</option>
+                                <option value="retail">零售客户</option>
+                                <option value="restaurant">餐饮客户</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn-submit">保存客户</button>
+                    </form>
+                </div>
+
+                <div class="list-container">
+                    <h3>📋 客户列表</h3>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>客户名称</th>
+                                    <th>联系电话</th>
+                                    <th>地址</th>
+                                    <th>类型</th>
+                                    <th>累计销售额</th>
+                                    <th>累计欠款</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="customerTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 产品管理 -->
+            <section id="products" class="tab-content">
+                <div class="form-container">
+                    <h2>🐟 添加产品</h2>
+                    <form id="productForm">
+                        <div class="form-group">
+                            <label>产品名称</label>
+                            <input type="text" id="productName" required placeholder="输入产品名称">
+                        </div>
+                        <div class="form-group">
+                            <label>产品分类</label>
+                            <select id="productCategory">
+                                <option value="鱼类">鱼类</option>
+                                <option value="虾类">虾类</option>
+                                <option value="蟹类">蟹类</option>
+                                <option value="贝类">贝类</option>
+                                <option value="软体类">软体类</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>建议单价 (元/斤)</label>
+                            <input type="number" id="productPrice" step="0.01" min="0" placeholder="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label>供应商</label>
+                            <input type="text" id="productSupplier" placeholder="输入供应商">
+                        </div>
+                        <button type="submit" class="btn-submit">保存产品</button>
+                    </form>
+                </div>
+
+                <div class="list-container">
+                    <h3>📋 产品列表</h3>
+                    <div class="table-wrapper">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>产品名称</th>
+                                    <th>分类</th>
+                                    <th>建议单价</th>
+                                    <th>供应商</th>
+                                    <th>累计销量</th>
+                                    <th>累计销售额</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody id="productTableBody"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- 报表分析 -->
+            <section id="report" class="tab-content">
+                <div class="report-header">
+                    <h2>📊 报表分析</h2>
+                    <div class="date-range">
+                        <input type="date" id="reportStartDate">
+                        <span>至</span>
+                        <input type="date" id="reportEndDate">
+                        <button class="btn-secondary" onclick="generateReport()">生成报表</button>
+                    </div>
+                </div>
+
+                <div class="report-summary">
+                    <div class="report-card">
+                        <h4>总销售额</h4>
+                        <p class="report-value" id="reportTotalSales">¥0.00</p>
+                    </div>
+                    <div class="report-card">
+                        <h4>总销量</h4>
+                        <p class="report-value" id="reportTotalWeight">0 斤</p>
+                    </div>
+                    <div class="report-card">
+                        <h4>总支出</h4>
+                        <p class="report-value" id="reportTotalExpense">¥0.00</p>
+                    </div>
+                    <div class="report-card">
+                        <h4>净利润</h4>
+                        <p class="report-value" id="reportNetProfit">¥0.00</p>
+                    </div>
+                    <div class="report-card">
+                        <h4>平均单价</h4>
+                        <p class="report-value" id="reportAvgPrice">¥0.00/斤</p>
+                    </div>
+                    <div class="report-card">
+                        <h4>订单数量</h4>
+                        <p class="report-value" id="reportOrderCount">0 笔</p>
+                    </div>
+                </div>
+
+                <div class="report-details">
+                    <div class="report-section">
+                        <h3>产品销售明细</h3>
+                        <canvas id="reportProductChart"></canvas>
+                    </div>
+                    <div class="report-section">
+                        <h3>客户销售明细</h3>
+                        <canvas id="reportCustomerChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="report-actions">
+                    <button class="btn-secondary" onclick="exportReport()">导出报表</button>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 客户模态框 -->
+    <div id="customerModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>添加客户</h3>
+            <form id="modalCustomerForm">
+                <div class="form-group">
+                    <label>客户名称</label>
+                    <input type="text" id="modalCustomerName" required>
+                </div>
+                <div class="form-group">
+                    <label>联系电话</label>
+                    <input type="tel" id="modalCustomerPhone">
+                </div>
+                <div class="form-group">
+                    <label>地址</label>
+                    <input type="text" id="modalCustomerAddress">
+                </div>
+                <div class="form-group">
+                    <label>客户类型</label>
+                    <select id="modalCustomerType">
+                        <option value="regular">长期客户</option>
+                        <option value="wholesale">批发商</option>
+                        <option value="retail">零售客户</option>
+                        <option value="restaurant">餐饮客户</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-submit">添加</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 产品模态框 -->
+    <div id="productModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>添加产品</h3>
+            <form id="modalProductForm">
+                <div class="form-group">
+                    <label>产品名称</label>
+                    <input type="text" id="modalProductName" required>
+                </div>
+                <div class="form-group">
+                    <label>产品分类</label>
+                    <select id="modalProductCategory">
+                        <option value="鱼类">鱼类</option>
+                        <option value="虾类">虾类</option>
+                        <option value="蟹类">蟹类</option>
+                        <option value="贝类">贝类</option>
+                        <option value="软体类">软体类</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>建议单价 (元/斤)</label>
+                    <input type="number" id="modalProductPrice" step="0.01" min="0">
+                </div>
+                <div class="form-group">
+                    <label>供应商</label>
+                    <input type="text" id="modalProductSupplier">
+                </div>
+                <button type="submit" class="btn-submit">添加</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 切换使用本地存储或API -->
+    <script>
+        // 设置为 'app.js' 使用本地存储，'app-api.js' 使用后端API
+        const SCRIPT_FILE = 'app-api.js';  // 修改这里切换数据源
+    </script>
+    <script src=SCRIPT_FILE></script>
+</body>
+</html>
