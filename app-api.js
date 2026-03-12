@@ -1,14 +1,40 @@
 // API基础配置
-const API_BASE_URL = 'http://localhost:3000/api';
+// 注意：如果浏览器和服务器不在同一台机器，请将 localhost 改为服务器的实际IP地址
+// 例如：const API_BASE_URL = 'http://192.168.1.100:3000/api';
+// const API_BASE_URL = 'http://localhost:3000/api';
+
+const API_BASE_URL = 'http://111.230.104.223:3000/api';
 
 // 数据存储（降级使用localStorage）
 let sales = JSON.parse(localStorage.getItem('fish_sales')) || [];
 let expenses = JSON.parse(localStorage.getItem('fish_expenses')) || [];
+let monthlyExpenses = JSON.parse(localStorage.getItem('fish_monthly_expenses')) || [];
 let customers = JSON.parse(localStorage.getItem('fish_customers')) || [];
 let products = JSON.parse(localStorage.getItem('fish_products')) || [];
+let inventory = JSON.parse(localStorage.getItem('fish_inventory')) || [];
 
 // 使用API开关（可通过此开关切换本地存储和API）
-const USE_API = true; // 设置为false则使用localStorage
+let USE_API = true; // 设置为false则使用localStorage
+
+// 检查API是否可用
+async function checkApiAvailable() {
+    try {
+        const response = await fetch(`${API_BASE_URL}/health`, {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' },
+            timeout: 1000
+        });
+        USE_API = response.ok;
+        if (!USE_API) {
+            console.warn('后端服务不可用，自动切换到本地存储模式');
+        }
+        return USE_API;
+    } catch (error) {
+        console.warn('后端服务不可用，自动切换到本地存储模式');
+        USE_API = false;
+        return false;
+    }
+}
 
 // API调用函数
 async function apiCall(endpoint, options = {}) {
@@ -30,14 +56,9 @@ async function apiCall(endpoint, options = {}) {
         return data;
     } catch (error) {
         console.error('API调用失败:', error);
+        console.warn('API调用失败，请在 index.html 中切换到 app.js 使用本地存储，或启动后端服务');
         throw error;
     }
-}
-
-// 切换到本地存储模式
-function fallbackToLocal() {
-    console.warn('API不可用，切换到本地存储模式');
-    return false;
 }
 
 // ==================== 客户管理 ====================
@@ -46,14 +67,18 @@ function fallbackToLocal() {
 async function loadCustomers() {
     if (USE_API) {
         try {
+            console.log('正在从API加载客户...');
             const result = await apiCall('/customers');
-            customers = result.data;
+            customers = result.data || [];
+            console.log('从API加载到客户数量:', customers.length);
             localStorage.setItem('fish_customers', JSON.stringify(customers));
             return customers;
         } catch (err) {
-            return fallbackToLocal();
+            console.error('加载客户失败:', err);
+            // 继续使用本地存储的数据
         }
     }
+    console.log('使用本地存储的客户数据:', customers.length);
     return customers;
 }
 
@@ -61,14 +86,28 @@ async function loadCustomers() {
 async function addCustomer(customer) {
     if (USE_API) {
         try {
+            // 将英文类型转换为中文类型以匹配数据库约束
+            const typeMap = {
+                'regular': '长期客户',
+                'wholesale': '批发商',
+                'retail': '零售客户',
+                'restaurant': '餐饮客户'
+            };
+            const customerData = {
+                ...customer,
+                type: typeMap[customer.type] || customer.type
+            };
+
             await apiCall('/customers', {
                 method: 'POST',
-                body: JSON.stringify(customer)
+                body: JSON.stringify(customerData)
             });
             await loadCustomers();
             return true;
         } catch (err) {
-            return fallbackToLocal();
+            console.error('添加客户失败:', err);
+            alert('无法连接到后端服务，请启动后端或使用本地存储模式（app.js）');
+            return false;
         }
     }
 
@@ -86,14 +125,28 @@ async function addCustomer(customer) {
 async function updateCustomer(id, customer) {
     if (USE_API) {
         try {
+            // 将英文类型转换为中文类型以匹配数据库约束
+            const typeMap = {
+                'regular': '长期客户',
+                'wholesale': '批发商',
+                'retail': '零售客户',
+                'restaurant': '餐饮客户'
+            };
+            const customerData = {
+                ...customer,
+                type: typeMap[customer.type] || customer.type
+            };
+
             await apiCall(`/customers/${id}`, {
                 method: 'PUT',
-                body: JSON.stringify(customer)
+                body: JSON.stringify(customerData)
             });
             await loadCustomers();
             return true;
         } catch (err) {
-            return fallbackToLocal();
+            console.error('更新客户失败:', err);
+            alert('无法连接到后端服务');
+            return false;
         }
     }
 
@@ -113,7 +166,9 @@ async function deleteCustomer(id) {
             await loadCustomers();
             return true;
         } catch (err) {
-            return fallbackToLocal();
+            console.error('删除客户失败:', err);
+            alert('无法连接到后端服务');
+            return false;
         }
     }
 
@@ -456,6 +511,184 @@ function saveExpenses() {
     localStorage.setItem('fish_expenses', JSON.stringify(expenses));
 }
 
+// ==================== 每月固定支出管理 ====================
+
+// 获取所有每月固定支出
+async function loadMonthlyExpenses(filters = {}) {
+    if (USE_API) {
+        try {
+            const params = new URLSearchParams(filters).toString();
+            const result = await apiCall(`/monthly-expenses?${params}`);
+            monthlyExpenses = result.data;
+            localStorage.setItem('fish_monthly_expenses', JSON.stringify(monthlyExpenses));
+            return monthlyExpenses;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    let filtered = [...monthlyExpenses];
+    if (filters.is_active !== undefined && filters.is_active !== 'all') {
+        filtered = filtered.filter(e => e.is_active === parseInt(filters.is_active));
+    }
+    return filtered.sort((a, b) => a.category.localeCompare(b.category));
+}
+
+// 添加每月固定支出
+async function addMonthlyExpense(expense) {
+    if (USE_API) {
+        try {
+            await apiCall('/monthly-expenses', {
+                method: 'POST',
+                body: JSON.stringify(expense)
+            });
+            await loadMonthlyExpenses();
+            return true;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    expense.id = Date.now();
+    expense.created_at = new Date().toISOString();
+    monthlyExpenses.push(expense);
+    saveMonthlyExpenses();
+    return true;
+}
+
+// 更新每月固定支出
+async function updateMonthlyExpense(id, expense) {
+    if (USE_API) {
+        try {
+            await apiCall(`/monthly-expenses/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(expense)
+            });
+            await loadMonthlyExpenses();
+            return true;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    const index = monthlyExpenses.findIndex(e => e.id === id);
+    if (index !== -1) {
+        monthlyExpenses[index] = { ...monthlyExpenses[index], ...expense };
+        saveMonthlyExpenses();
+    }
+    return true;
+}
+
+// 删除每月固定支出
+async function deleteMonthlyExpense(id) {
+    if (USE_API) {
+        try {
+            await apiCall(`/monthly-expenses/${id}`, { method: 'DELETE' });
+            await loadMonthlyExpenses();
+            return true;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    monthlyExpenses = monthlyExpenses.filter(e => e.id !== id);
+    saveMonthlyExpenses();
+    return true;
+}
+
+function saveMonthlyExpenses() {
+    localStorage.setItem('fish_monthly_expenses', JSON.stringify(monthlyExpenses));
+}
+
+// ==================== 库存管理 ====================
+
+// 获取所有库存
+async function loadInventory(filters = {}) {
+    if (USE_API) {
+        try {
+            const params = new URLSearchParams(filters).toString();
+            const result = await apiCall(`/inventory?${params}`);
+            inventory = result.data;
+            localStorage.setItem('fish_inventory', JSON.stringify(inventory));
+            return inventory;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    let filtered = [...inventory];
+    if (filters.is_active !== undefined && filters.is_active !== 'all') {
+        filtered = filtered.filter(i => i.is_active === parseInt(filters.is_active));
+    }
+    return filtered.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+}
+
+// 添加库存
+async function addInventory(item) {
+    if (USE_API) {
+        try {
+            await apiCall('/inventory', {
+                method: 'POST',
+                body: JSON.stringify(item)
+            });
+            await loadInventory();
+            return true;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    item.id = Date.now();
+    item.created_at = new Date().toISOString();
+    inventory.push(item);
+    saveInventory();
+    return true;
+}
+
+// 更新库存
+async function updateInventory(id, item) {
+    if (USE_API) {
+        try {
+            await apiCall(`/inventory/${id}`, {
+                method: 'PUT',
+                body: JSON.stringify(item)
+            });
+            await loadInventory();
+            return true;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    const index = inventory.findIndex(i => i.id === id);
+    if (index !== -1) {
+        inventory[index] = { ...inventory[index], ...item };
+        saveInventory();
+    }
+    return true;
+}
+
+// 删除库存
+async function deleteInventory(id) {
+    if (USE_API) {
+        try {
+            await apiCall(`/inventory/${id}`, { method: 'DELETE' });
+            await loadInventory();
+            return true;
+        } catch (err) {
+            return fallbackToLocal();
+        }
+    }
+
+    inventory = inventory.filter(i => i.id !== id);
+    saveInventory();
+    return true;
+}
+
+function saveInventory() {
+    localStorage.setItem('fish_inventory', JSON.stringify(inventory));
+}
+
 // ==================== 统计分析 ====================
 
 // 获取仪表板数据
@@ -542,8 +775,8 @@ async function loadDashboardData() {
     };
 }
 
-// 生成报表
-async function generateReport(startDate, endDate) {
+// 获取报表数据
+async function fetchReportData(startDate, endDate) {
     if (USE_API) {
         try {
             const result = await apiCall(`/report?start_date=${startDate}&end_date=${endDate}`);
@@ -637,21 +870,56 @@ async function exportAllData() {
 // 初始化
 document.addEventListener('DOMContentLoaded', async () => {
     initializeDateInputs();
+
+    // 检查后端服务是否可用
+    const apiAvailable = await checkApiAvailable();
+    if (!apiAvailable && USE_API) {
+        alert('后端服务不可用，正在使用本地存储模式。如需使用数据库，请启动后端服务：\ncd /home/zhoumeihua/wholesale_fish_bookkeeping && npm start');
+    }
+
     await loadInitialData();
     setupEventListeners();
+    setupTabNavigation();
     updateDashboard();
     renderSalesTable();
     renderExpenseTable();
+    renderMonthlyExpenseTable();
     renderCustomerTable();
     renderProductTable();
+    renderInventoryTable();
     initializeReportDates();
 });
+
+// 标签页导航
+function setupTabNavigation() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            const tabId = button.getAttribute('data-tab');
+
+            // 移除所有激活状态
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabContents.forEach(content => content.classList.remove('active'));
+
+            // 激活当前标签页
+            button.classList.add('active');
+            const targetContent = document.getElementById(tabId);
+            if (targetContent) {
+                targetContent.classList.add('active');
+            }
+        });
+    });
+}
 
 async function loadInitialData() {
     await loadCustomers();
     await loadProducts();
     await loadSales();
     await loadExpenses();
+    await loadMonthlyExpenses();
+    await loadInventory();
 }
 
 // 初始化日期输入
@@ -659,6 +927,8 @@ function initializeDateInputs() {
     const today = new Date().toISOString().split('T')[0];
     document.getElementById('salesDate').value = today;
     document.getElementById('expenseDate').value = today;
+    document.getElementById('monthlyExpenseStartDate').value = today;
+    document.getElementById('inventoryPurchaseDate').value = today;
 }
 
 // 更新下拉列表
@@ -678,14 +948,40 @@ function updateCustomerSelects() {
 function updateProductSelects() {
     const salesProduct = document.getElementById('salesProduct');
     const salesFilterProduct = document.getElementById('salesFilterProduct');
+    const salesFilterCategory = document.getElementById('salesFilterCategory');
+    const inventoryProduct = document.getElementById('inventoryProduct');
 
-    salesProduct.innerHTML = '<option value="">选择产品</option>';
-    salesFilterProduct.innerHTML = '<option value="all">全部产品</option>';
+    if (salesProduct) {
+        salesProduct.innerHTML = '<option value="">选择产品</option>';
+        products.forEach(product => {
+            salesProduct.innerHTML += `<option value="${product.id}">${product.name} (${product.category})</option>`;
+        });
+    }
 
-    products.forEach(product => {
-        salesProduct.innerHTML += `<option value="${product.id}">${product.name} (${product.category})</option>`;
-        salesFilterProduct.innerHTML += `<option value="${product.id}">${product.name}</option>`;
-    });
+    if (salesFilterProduct) {
+        salesFilterProduct.innerHTML = '<option value="all">全部产品</option>';
+        products.forEach(product => {
+            salesFilterProduct.innerHTML += `<option value="${product.id}">${product.name}</option>`;
+        });
+    }
+
+    if (inventoryProduct) {
+        inventoryProduct.innerHTML = '<option value="">选择产品</option>';
+        products.forEach(product => {
+            inventoryProduct.innerHTML += `<option value="${product.id}">${product.name} (${product.category})</option>`;
+        });
+    }
+
+    // 获取所有唯一的品类
+    const categories = [...new Set(products.map(p => p.category))].filter(c => c);
+
+    // 更新品类筛选器
+    if (salesFilterCategory) {
+        salesFilterCategory.innerHTML = '<option value="all">全部品类</option>';
+        categories.forEach(category => {
+            salesFilterCategory.innerHTML += `<option value="${category}">${category}</option>`;
+        });
+    }
 
     // 更新产品价格提示
     const productPriceHint = document.getElementById('productPriceHint');
@@ -699,202 +995,394 @@ function updateProductSelects() {
 // 设置事件监听器
 function setupEventListeners() {
     // 销售表单提交
-    document.getElementById('saleForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const sale = {
-            customer_id: parseInt(document.getElementById('salesCustomer').value),
-            product_id: parseInt(document.getElementById('salesProduct').value),
-            quantity: parseFloat(document.getElementById('salesQuantity').value),
-            unit_price: parseFloat(document.getElementById('salesUnitPrice').value),
-            total_amount: parseFloat(document.getElementById('salesTotalAmount').value),
-            payment_status: document.getElementById('salesPaymentStatus').value,
-            paid_amount: parseFloat(document.getElementById('salesPaidAmount').value) || 0,
-            sale_date: document.getElementById('salesDate').value,
-            notes: document.getElementById('salesNotes').value
-        };
+    const salesForm = document.getElementById('salesForm');
+    if (salesForm) {
+        salesForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
 
-        if (await addSale(sale)) {
-            document.getElementById('saleForm').reset();
-            initializeDateInputs();
-            updateDashboard();
-            await renderSalesTable();
-            alert('销售记录添加成功！');
-        }
-    });
+            // 获取付款状态并转换
+            const paymentStatus = document.getElementById('salesPaymentStatus').value;
+            const paymentStatusMap = {
+                'paid': '已付款',
+                'unpaid': '未付款',
+                'partial': '部分付款'
+            };
+
+            const sale = {
+                customer_id: parseInt(document.getElementById('salesCustomer').value),
+                product_id: parseInt(document.getElementById('salesProduct').value),
+                quantity: parseFloat(document.getElementById('salesWeight').value),
+                unit_price: parseFloat(document.getElementById('salesPrice').value),
+                total_amount: parseFloat(document.getElementById('salesTotalAmount').value) || 0,
+                payment_status: paymentStatusMap[paymentStatus] || '已付款',
+                paid_amount: parseFloat(document.getElementById('salesTotalAmount').value) || 0,
+                sale_date: document.getElementById('salesDate').value,
+                notes: document.getElementById('salesNotes').value
+            };
+
+            if (await addSale(sale)) {
+                salesForm.reset();
+                initializeDateInputs();
+                updateDashboard();
+                await renderSalesTable();
+                alert('销售记录添加成功！');
+            }
+        });
+    }
 
     // 支出表单提交
-    document.getElementById('expenseForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const expense = {
-            category: document.getElementById('expenseCategory').value,
-            amount: parseFloat(document.getElementById('expenseAmount').value),
-            description: document.getElementById('expenseDescription').value,
-            payment_method: document.getElementById('expensePaymentMethod').value,
-            expense_date: document.getElementById('expenseDate').value
-        };
+    const expenseForm = document.getElementById('expenseForm');
+    if (expenseForm) {
+        expenseForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const expense = {
+                category: document.getElementById('expenseCategory').value,
+                amount: parseFloat(document.getElementById('expenseAmount').value),
+                description: document.getElementById('expenseNotes').value,
+                payment_method: document.getElementById('expensePaymentMethod').value,
+                expense_date: document.getElementById('expenseDate').value
+            };
 
-        if (await addExpense(expense)) {
-            document.getElementById('expenseForm').reset();
-            initializeDateInputs();
-            updateDashboard();
-            await renderExpenseTable();
-            alert('支出记录添加成功！');
-        }
-    });
+            if (await addExpense(expense)) {
+                expenseForm.reset();
+                initializeDateInputs();
+                updateDashboard();
+                await renderExpenseTable();
+                alert('支出记录添加成功！');
+            }
+        });
+    }
 
     // 产品选择自动填充价格
-    document.getElementById('salesProduct').addEventListener('change', (e) => {
-        const product = products.find(p => p.id === parseInt(e.target.value));
-        if (product && product.suggested_price > 0) {
-            document.getElementById('salesUnitPrice').value = product.suggested_price;
-            calculateTotalAmount();
-        }
-    });
+    const salesProduct = document.getElementById('salesProduct');
+    const salesPrice = document.getElementById('salesPrice');
+    if (salesProduct && salesPrice) {
+        salesProduct.addEventListener('change', (e) => {
+            const product = products.find(p => p.id === parseInt(e.target.value));
+            if (product && product.suggested_price > 0) {
+                salesPrice.value = product.suggested_price;
+                calculateTotalAmount();
+            }
+        });
+    }
 
     // 数量和单价变化时计算总金额
-    document.getElementById('salesQuantity').addEventListener('input', calculateTotalAmount);
-    document.getElementById('salesUnitPrice').addEventListener('input', calculateTotalAmount);
+    const salesWeight = document.getElementById('salesWeight');
+    if (salesWeight) {
+        salesWeight.addEventListener('input', calculateTotalAmount);
+    }
+    if (salesPrice) {
+        salesPrice.addEventListener('input', calculateTotalAmount);
+    }
 
-    // 付款状态变化
-    document.getElementById('salesPaymentStatus').addEventListener('change', (e) => {
-        const paidAmountField = document.getElementById('salesPaidAmount');
-        paidAmountField.disabled = e.target.value === '已付款';
-        if (e.target.value === '已付款') {
-            paidAmountField.value = document.getElementById('salesTotalAmount').value;
-        } else if (e.target.value === '未付款') {
-            paidAmountField.value = 0;
-        }
-    });
+    // 付款状态变化（如果需要的话）
+    const salesPaymentStatus = document.getElementById('salesPaymentStatus');
+    if (salesPaymentStatus) {
+        salesPaymentStatus.addEventListener('change', (e) => {
+            // 可以在这里添加付款状态变化的处理逻辑
+            console.log('付款状态变化:', e.target.value);
+        });
+    }
 
-    // 筛选按钮
-    document.getElementById('applySalesFilter').addEventListener('click', async () => {
-        const filters = {
-            customer_id: document.getElementById('salesFilterCustomer').value,
-            product_id: document.getElementById('salesFilterProduct').value,
-            payment_status: document.getElementById('salesFilterStatus').value,
-            start_date: document.getElementById('salesFilterStartDate').value,
-            end_date: document.getElementById('salesFilterEndDate').value
-        };
-        const filtered = await loadSales(filters);
-        renderSalesTable(filtered);
-    });
+    // 每月固定支出表单提交
+    const monthlyExpenseForm = document.getElementById('monthlyExpenseForm');
+    if (monthlyExpenseForm) {
+        monthlyExpenseForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const expense = {
+                name: document.getElementById('monthlyExpenseName').value,
+                category: document.getElementById('monthlyExpenseCategory').value,
+                amount: parseFloat(document.getElementById('monthlyExpenseAmount').value),
+                payment_method: document.getElementById('monthlyExpensePaymentMethod').value,
+                description: document.getElementById('monthlyExpenseNotes').value,
+                is_active: parseInt(document.getElementById('monthlyExpenseStatus').value),
+                start_date: document.getElementById('monthlyExpenseStartDate').value,
+                cycle_type: document.getElementById('monthlyExpenseCycleType').value
+            };
 
-    document.getElementById('applyExpenseFilter').addEventListener('click', async () => {
-        const filters = {
-            category: document.getElementById('expenseFilterCategory').value,
-            start_date: document.getElementById('expenseFilterStartDate').value,
-            end_date: document.getElementById('expenseFilterEndDate').value
-        };
-        const filtered = await loadExpenses(filters);
-        renderExpenseTable(filtered);
-    });
+            if (await addMonthlyExpense(expense)) {
+                monthlyExpenseForm.reset();
+                document.getElementById('monthlyExpenseStatus').value = '1';
+                await renderMonthlyExpenseTable();
+                alert('固定支出添加成功！');
+            }
+        });
+    }
 
-    // 清除筛选
-    document.getElementById('clearSalesFilter').addEventListener('click', async () => {
-        document.getElementById('salesFilterCustomer').value = 'all';
-        document.getElementById('salesFilterProduct').value = 'all';
-        document.getElementById('salesFilterStatus').value = 'all';
-        document.getElementById('salesFilterStartDate').value = '';
-        document.getElementById('salesFilterEndDate').value = '';
-        await renderSalesTable();
-    });
+    // 库存表单提交
+    const inventoryForm = document.getElementById('inventoryForm');
+    if (inventoryForm) {
+        inventoryForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const item = {
+                product_id: parseInt(document.getElementById('inventoryProduct').value),
+                quantity: parseFloat(document.getElementById('inventoryQuantity').value),
+                unit: document.getElementById('inventoryUnit').value,
+                supplier: document.getElementById('inventorySupplier').value,
+                purchase_price: parseFloat(document.getElementById('inventoryPurchasePrice').value) || 0,
+                purchase_date: document.getElementById('inventoryPurchaseDate').value,
+                notes: document.getElementById('inventoryNotes').value,
+                is_active: 1
+            };
 
-    document.getElementById('clearExpenseFilter').addEventListener('click', async () => {
-        document.getElementById('expenseFilterCategory').value = 'all';
-        document.getElementById('expenseFilterStartDate').value = '';
-        document.getElementById('expenseFilterEndDate').value = '';
-        await renderExpenseTable();
-    });
+            if (await addInventory(item)) {
+                inventoryForm.reset();
+                document.getElementById('inventoryUnit').value = '斤';
+                await renderInventoryTable();
+                alert('库存添加成功！');
+            }
+        });
+    }
 
-    // 生成报表按钮
-    document.getElementById('generateReportBtn').addEventListener('click', async () => {
-        const startDate = document.getElementById('reportStartDate').value;
-        const endDate = document.getElementById('reportEndDate').value;
+    // 销售记录筛选器事件监听 - 移除自动触发，改为手动按钮触发
+    const salesFilterCustomer = document.getElementById('salesFilterCustomer');
+    const salesFilterCategory = document.getElementById('salesFilterCategory');
+    const salesFilterProduct = document.getElementById('salesFilterProduct');
+    const salesFilterStatus = document.getElementById('salesFilterStatus');
+    const salesFilterDateStart = document.getElementById('salesFilterDateStart');
+    const salesFilterDateEnd = document.getElementById('salesFilterDateEnd');
 
-        if (!startDate || !endDate) {
-            alert('请选择日期范围');
-            return;
-        }
+    const salesFilterElements = [salesFilterCustomer, salesFilterCategory, salesFilterProduct, salesFilterStatus, salesFilterDateStart, salesFilterDateEnd];
+    // 移除自动触发的事件监听器
+    // salesFilterElements.forEach(element => {
+    //     if (element) {
+    //         element.addEventListener('change', renderSalesTable);
+    //         element.addEventListener('input', renderSalesTable);
+    //     }
+    // });
 
-        const reportData = await generateReport(startDate, endDate);
-        renderReport(reportData);
-    });
+    // 支出记录筛选器事件监听 - 移除自动触发，改为手动按钮触发
+    const expenseFilterCategory = document.getElementById('expenseFilterCategory');
+    const expenseFilterDateStart = document.getElementById('expenseFilterDateStart');
+    const expenseFilterDateEnd = document.getElementById('expenseFilterDateEnd');
 
-    // 导出数据按钮
-    document.getElementById('exportDataBtn').addEventListener('click', async () => {
-        const data = await exportAllData();
-        downloadJSON(data, 'fish_bookkeeping_export.json');
-        alert('数据导出成功！');
-    });
+    const expenseFilterElements = [expenseFilterCategory, expenseFilterDateStart, expenseFilterDateEnd];
+    // 移除自动触发的事件监听器
+    // expenseFilterElements.forEach(element => {
+    //     if (element) {
+    //         element.addEventListener('change', renderExpenseTable);
+    //         element.addEventListener('input', renderExpenseTable);
+    //     }
+    // });
 
-    // 清空数据按钮
-    document.getElementById('clearAllDataBtn').addEventListener('click', () => {
-        if (confirm('确定要清空所有数据吗？此操作不可恢复！')) {
-            localStorage.clear();
-            location.reload();
-        }
-    });
+    // 模态框销售记录表单提交
+    const modalSaleForm = document.getElementById('modalSaleForm');
+    if (modalSaleForm) {
+        modalSaleForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = parseInt(modalSaleForm.dataset.id);
+            const sale = {
+                customer_id: parseInt(document.getElementById('modalSaleCustomer').value),
+                product_id: parseInt(document.getElementById('modalSaleProduct').value),
+                quantity: parseFloat(document.getElementById('modalSaleWeight').value),
+                unit_price: parseFloat(document.getElementById('modalSalePrice').value),
+                total_amount: parseFloat(document.getElementById('modalSaleTotalAmount').value),
+                payment_status: document.getElementById('modalSalePaymentStatus').value === 'paid' ? '已付款' :
+                                 document.getElementById('modalSalePaymentStatus').value === 'unpaid' ? '未付款' : '部分付款',
+                paid_amount: parseFloat(document.getElementById('modalSaleTotalAmount').value) || 0,
+                sale_date: document.getElementById('modalSaleDate').value,
+                notes: document.getElementById('modalSaleNotes').value
+            };
 
-    // 添加客户按钮
-    document.getElementById('addCustomerBtn').addEventListener('click', () => {
-        document.getElementById('customerModal').style.display = 'flex';
-    });
+            if (await updateSale(id, sale)) {
+                modalSaleForm.reset();
+                delete modalSaleForm.dataset.id;
+                document.getElementById('saleModal').style.display = 'none';
+                await renderSalesTable();
+                updateDashboard();
+                alert('销售记录更新成功！');
+            }
+        });
+    }
 
-    // 添加产品按钮
-    document.getElementById('addProductBtn').addEventListener('click', () => {
-        document.getElementById('productModal').style.display = 'flex';
-    });
+    // 添加客户和产品按钮在HTML中使用onclick调用全局函数，不需要在这里添加监听器
 
     // 关闭模态框
-    document.querySelectorAll('.close-modal').forEach(btn => {
+    document.querySelectorAll('.close').forEach(btn => {
         btn.addEventListener('click', () => {
             document.querySelectorAll('.modal').forEach(modal => {
                 modal.style.display = 'none';
+                // 重置表单模式
+                const form = modal.querySelector('form');
+                if (form) {
+                    form.reset();
+                    delete form.dataset.mode;
+                    delete form.dataset.id;
+                    const title = modal.querySelector('h3');
+                    if (title) {
+                        title.textContent = title.textContent.includes('客户') ? '添加客户' : '添加产品';
+                    }
+                }
             });
         });
     });
 
-    // 客户表单提交
-    document.getElementById('customerForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const customer = {
-            name: document.getElementById('customerName').value,
-            type: document.getElementById('customerType').value,
-            phone: document.getElementById('customerPhone').value,
-            address: document.getElementById('customerAddress').value
-        };
+    // 模态框客户表单提交
+    const modalCustomerForm = document.getElementById('modalCustomerForm');
+    if (modalCustomerForm) {
+        modalCustomerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const mode = modalCustomerForm.dataset.mode || 'add';
+            const id = parseInt(modalCustomerForm.dataset.id);
+            const customer = {
+                name: document.getElementById('modalCustomerName').value,
+                type: document.getElementById('modalCustomerType').value,
+                phone: document.getElementById('modalCustomerPhone').value,
+                address: document.getElementById('modalCustomerAddress').value
+            };
 
-        if (await addCustomer(customer)) {
-            document.getElementById('customerForm').reset();
-            document.getElementById('customerModal').style.display = 'none';
-            await renderCustomerTable();
-            alert('客户添加成功！');
-        }
-    });
+            if (mode === 'edit') {
+                if (await updateCustomer(id, customer)) {
+                    modalCustomerForm.reset();
+                    delete modalCustomerForm.dataset.mode;
+                    delete modalCustomerForm.dataset.id;
+                    document.getElementById('customerModal').style.display = 'none';
+                    await renderCustomerTable();
+                    alert('客户更新成功！');
+                }
+            } else {
+                if (await addCustomer(customer)) {
+                    modalCustomerForm.reset();
+                    document.getElementById('customerModal').style.display = 'none';
+                    await renderCustomerTable();
+                    alert('客户添加成功！');
+                }
+            }
+        });
+    }
+
+    // 模态框产品表单提交
+    const modalProductForm = document.getElementById('modalProductForm');
+    if (modalProductForm) {
+        modalProductForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const mode = modalProductForm.dataset.mode || 'add';
+            const id = parseInt(modalProductForm.dataset.id);
+            const product = {
+                name: document.getElementById('modalProductName').value,
+                category: document.getElementById('modalProductCategory').value,
+                suggested_price: parseFloat(document.getElementById('modalProductPrice').value) || 0,
+                supplier: document.getElementById('modalProductSupplier').value
+            };
+
+            if (mode === 'edit') {
+                if (await updateProduct(id, product)) {
+                    modalProductForm.reset();
+                    delete modalProductForm.dataset.mode;
+                    delete modalProductForm.dataset.id;
+                    document.getElementById('productModal').style.display = 'none';
+                    await renderProductTable();
+                    alert('产品更新成功！');
+                }
+            } else {
+                if (await addProduct(product)) {
+                    modalProductForm.reset();
+                    document.getElementById('productModal').style.display = 'none';
+                    await renderProductTable();
+                    alert('产品添加成功！');
+                }
+            }
+        });
+    }
+
+    // 模态框每月固定支出表单提交
+    const modalMonthlyExpenseForm = document.getElementById('modalMonthlyExpenseForm');
+    if (modalMonthlyExpenseForm) {
+        modalMonthlyExpenseForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = parseInt(modalMonthlyExpenseForm.dataset.id);
+            const expense = {
+                name: document.getElementById('modalMonthlyExpenseName').value,
+                category: document.getElementById('modalMonthlyExpenseCategory').value,
+                amount: parseFloat(document.getElementById('modalMonthlyExpenseAmount').value),
+                payment_method: document.getElementById('modalMonthlyExpensePaymentMethod').value,
+                description: document.getElementById('modalMonthlyExpenseNotes').value,
+                is_active: parseInt(document.getElementById('modalMonthlyExpenseStatus').value),
+                start_date: document.getElementById('modalMonthlyExpenseStartDate').value,
+                cycle_type: document.getElementById('modalMonthlyExpenseCycleType').value
+            };
+
+            if (await updateMonthlyExpense(id, expense)) {
+                modalMonthlyExpenseForm.reset();
+                delete modalMonthlyExpenseForm.dataset.id;
+                document.getElementById('monthlyExpenseModal').style.display = 'none';
+                await renderMonthlyExpenseTable();
+                alert('固定支出更新成功！');
+            }
+        });
+    }
+
+    // 模态框库存表单提交
+    const modalInventoryForm = document.getElementById('modalInventoryForm');
+    if (modalInventoryForm) {
+        modalInventoryForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const id = parseInt(modalInventoryForm.dataset.id);
+            const item = {
+                product_id: parseInt(document.getElementById('modalInventoryProduct').value),
+                quantity: parseFloat(document.getElementById('modalInventoryQuantity').value),
+                unit: document.getElementById('modalInventoryUnit').value,
+                supplier: document.getElementById('modalInventorySupplier').value,
+                purchase_price: parseFloat(document.getElementById('modalInventoryPurchasePrice').value) || 0,
+                purchase_date: document.getElementById('modalInventoryPurchaseDate').value,
+                notes: document.getElementById('modalInventoryNotes').value,
+                is_active: parseInt(document.getElementById('modalInventoryStatus').value)
+            };
+
+            if (await updateInventory(id, item)) {
+                modalInventoryForm.reset();
+                delete modalInventoryForm.dataset.id;
+                document.getElementById('inventoryModal').style.display = 'none';
+                await renderInventoryTable();
+                alert('库存更新成功！');
+            }
+        });
+    }
+
+    // 客户表单提交（客户管理页面）
+    const customerForm = document.getElementById('customerForm');
+    if (customerForm) {
+        customerForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const customer = {
+                name: document.getElementById('customerName').value,
+                type: document.getElementById('customerType').value,
+                phone: document.getElementById('customerPhone').value,
+                address: document.getElementById('customerAddress').value
+            };
+
+            if (await addCustomer(customer)) {
+                customerForm.reset();
+                await renderCustomerTable();
+                alert('客户添加成功！');
+            }
+        });
+    }
 
     // 产品表单提交
-    document.getElementById('productForm').addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const product = {
-            name: document.getElementById('productName').value,
-            category: document.getElementById('productCategory').value,
-            suggested_price: parseFloat(document.getElementById('productSuggestedPrice').value) || 0,
-            supplier: document.getElementById('productSupplier').value,
-            supplier_phone: document.getElementById('productSupplierPhone').value
-        };
+    const productForm = document.getElementById('productForm');
+    if (productForm) {
+        productForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const product = {
+                name: document.getElementById('productName').value,
+                category: document.getElementById('productCategory').value,
+                suggested_price: parseFloat(document.getElementById('productPrice').value) || 0,
+                supplier: document.getElementById('productSupplier').value
+            };
 
-        if (await addProduct(product)) {
-            document.getElementById('productForm').reset();
-            document.getElementById('productModal').style.display = 'none';
-            await renderProductTable();
-            alert('产品添加成功！');
-        }
-    });
+            if (await addProduct(product)) {
+                productForm.reset();
+                await renderProductTable();
+                alert('产品添加成功！');
+            }
+        });
+    }
 }
 
 function calculateTotalAmount() {
-    const quantity = parseFloat(document.getElementById('salesQuantity').value) || 0;
-    const unitPrice = parseFloat(document.getElementById('salesUnitPrice').value) || 0;
+    const quantity = parseFloat(document.getElementById('salesWeight').value) || 0;
+    const unitPrice = parseFloat(document.getElementById('salesPrice').value) || 0;
     const total = quantity * unitPrice;
     document.getElementById('salesTotalAmount').value = total.toFixed(2);
 }
@@ -903,30 +1391,56 @@ function calculateTotalAmount() {
 async function updateDashboard() {
     const data = await loadDashboardData();
 
+    if (!data) {
+        console.warn('仪表板数据为空');
+        return;
+    }
+
+    const today = data.today || {};
+    const month = data.month || {};
+
     // 今日数据
-    document.getElementById('todaySales').textContent = `¥${data.today.sales.toFixed(2)}`;
-    document.getElementById('todaySalesCount').textContent = `${data.today.salesCount} 笔`;
-    document.getElementById('todaySalesQuantity').textContent = `${data.today.salesQuantity.toFixed(1)} 斤`;
-    document.getElementById('todayExpenses').textContent = `¥${data.today.expenses.toFixed(2)}`;
-    document.getElementById('todayProfit').textContent = `¥${data.today.profit.toFixed(2)}`;
+    const todaySalesEl = document.getElementById('todaySales');
+    if (todaySalesEl) todaySalesEl.textContent = `¥${Number(today.sales || 0).toFixed(2)}`;
+
+    const todayOrdersEl = document.getElementById('todayOrders');
+    if (todayOrdersEl) todayOrdersEl.textContent = `${today.salesCount || 0} 笔`;
+
+    const todaySalesQuantityEl = document.getElementById('todaySalesQuantity');
+    if (todaySalesQuantityEl) todaySalesQuantityEl.textContent = `${Number(today.salesQuantity || 0).toFixed(1)} 斤`;
+
+    const todayExpenseEl = document.getElementById('todayExpense');
+    if (todayExpenseEl) todayExpenseEl.textContent = `¥${Number(today.expenses || 0).toFixed(2)}`;
+
+    const todayProfitEl = document.getElementById('todayProfit');
+    if (todayProfitEl) todayProfitEl.textContent = `¥${Number(today.profit || 0).toFixed(2)}`;
 
     // 本月数据
-    document.getElementById('monthSales').textContent = `¥${data.month.sales.toFixed(2)}`;
-    document.getElementById('monthSalesQuantity').textContent = `${data.month.salesQuantity.toFixed(1)} 斤`;
-    document.getElementById('monthExpenses').textContent = `¥${data.month.expenses.toFixed(2)}`;
-    document.getElementById('monthProfit').textContent = `¥${data.month.profit.toFixed(2)}`;
-    document.getElementById('monthAvgPrice').textContent = `¥${data.month.avgPrice.toFixed(2)}`;
+    const monthSalesEl = document.getElementById('monthSales');
+    if (monthSalesEl) monthSalesEl.textContent = `¥${Number(month.sales || 0).toFixed(2)}`;
 
-    // 绘制图表
-    drawTrendChart(data.trend);
-    drawProductSalesPie(data.productSales);
-    drawExpenseBarChart(data.expenseByCategory);
-    renderTopCustomers(data.topCustomers);
+    const monthSalesQuantityEl = document.getElementById('monthSalesQuantity');
+    if (monthSalesQuantityEl) monthSalesQuantityEl.textContent = `${Number(month.salesQuantity || 0).toFixed(1)} 斤`;
+
+    const monthExpenseEl = document.getElementById('monthExpense');
+    if (monthExpenseEl) monthExpenseEl.textContent = `¥${Number(month.expenses || 0).toFixed(2)}`;
+
+    const monthProfitEl = document.getElementById('monthProfit');
+    if (monthProfitEl) monthProfitEl.textContent = `¥${Number(month.profit || 0).toFixed(2)}`;
+
+    const monthAvgPriceEl = document.getElementById('monthAvgPrice');
+    if (monthAvgPriceEl) monthAvgPriceEl.textContent = `¥${Number(month.avgPrice || 0).toFixed(2)}`;
+
+    // 绘制图表 - 使用正确的canvas ID
+    drawTrendChart(data.trend || []);
+    drawProductSalesPie(data.productSales || []);
+    drawExpenseBarChart(data.expenseByCategory || []);
+    renderTopCustomers(data.topCustomers || []);
 }
 
 // 绘制销售趋势图
 function drawTrendChart(trendData) {
-    const canvas = document.getElementById('trendChart');
+    const canvas = document.getElementById('salesTrendChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -946,7 +1460,7 @@ function drawTrendChart(trendData) {
     ctx.stroke();
 
     // 找出最大值
-    const maxSales = Math.max(...trendData.map(d => d.total));
+    const maxSales = Math.max(...trendData.map(d => d.total || 0));
     const scale = maxSales > 0 ? chartHeight / maxSales : 1;
 
     // 绘制折线
@@ -956,7 +1470,8 @@ function drawTrendChart(trendData) {
 
     trendData.forEach((data, index) => {
         const x = padding + (index / (trendData.length - 1)) * chartWidth;
-        const y = canvas.height - padding - data.total * scale;
+        const total = data.total || 0;
+        const y = canvas.height - padding - total * scale;
 
         if (index === 0) {
             ctx.moveTo(x, y);
@@ -970,7 +1485,8 @@ function drawTrendChart(trendData) {
     // 绘制数据点
     trendData.forEach((data, index) => {
         const x = padding + (index / (trendData.length - 1)) * chartWidth;
-        const y = canvas.height - padding - data.total * scale;
+        const total = data.total || 0;
+        const y = canvas.height - padding - total * scale;
 
         ctx.beginPath();
         ctx.arc(x, y, 4, 0, 2 * Math.PI);
@@ -981,14 +1497,17 @@ function drawTrendChart(trendData) {
 
 // 绘制产品销售饼图
 function drawProductSalesPie(productSales) {
-    const canvas = document.getElementById('productSalesPie');
+    const canvas = document.getElementById('productPieChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (productSales.length === 0) return;
+    if (!productSales || productSales.length === 0) return;
 
-    const total = productSales.reduce((sum, p) => sum + p.total, 0);
+    const total = productSales.reduce((sum, p) => sum + (p.total || 0), 0);
+
+    if (total === 0) return;
+
     const centerX = canvas.width / 2;
     const centerY = canvas.height / 2;
     const radius = Math.min(centerX, centerY) - 20;
@@ -997,7 +1516,8 @@ function drawProductSalesPie(productSales) {
 
     let startAngle = 0;
     productSales.forEach((product, index) => {
-        const sliceAngle = (product.total / total) * 2 * Math.PI;
+        const productTotal = product.total || 0;
+        const sliceAngle = (productTotal / total) * 2 * Math.PI;
         const endAngle = startAngle + sliceAngle;
 
         ctx.beginPath();
@@ -1012,18 +1532,18 @@ function drawProductSalesPie(productSales) {
 
 // 绘制支出柱状图
 function drawExpenseBarChart(expenseData) {
-    const canvas = document.getElementById('expenseBarChart');
+    const canvas = document.getElementById('expensePieChart');
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    if (expenseData.length === 0) return;
+    if (!expenseData || expenseData.length === 0) return;
 
     const padding = 40;
     const chartWidth = canvas.width - padding * 2;
     const chartHeight = canvas.height - padding * 2;
 
-    const maxExpense = Math.max(...expenseData.map(e => e.total));
+    const maxExpense = Math.max(...expenseData.map(e => e.total || 0));
     const scale = maxExpense > 0 ? chartHeight / maxExpense : 1;
 
     const barWidth = chartWidth / expenseData.length - 10;
@@ -1032,7 +1552,8 @@ function drawExpenseBarChart(expenseData) {
 
     expenseData.forEach((item, index) => {
         const x = padding + index * (barWidth + 10);
-        const barHeight = item.total * scale;
+        const total = item.total || 0;
+        const barHeight = total * scale;
         const y = canvas.height - padding - barHeight;
 
         ctx.fillStyle = colors[index % colors.length];
@@ -1042,18 +1563,42 @@ function drawExpenseBarChart(expenseData) {
 
 // 渲染客户排行榜
 function renderTopCustomers(topCustomers) {
-    const tbody = document.getElementById('topCustomersBody');
-    if (!tbody) return;
+    const canvas = document.getElementById('customerBarChart');
+    if (!canvas) return;
 
-    tbody.innerHTML = '';
+    // 使用柱状图绘制客户排行
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    if (!topCustomers || topCustomers.length === 0) return;
+
+    const padding = 60;
+    const chartWidth = canvas.width - padding * 2;
+    const chartHeight = canvas.height - padding * 2;
+
+    const maxSales = Math.max(...topCustomers.map(c => c.total || 0));
+    const scale = maxSales > 0 ? chartHeight / maxSales : 1;
+
+    const barWidth = chartWidth / topCustomers.length - 10;
+
+    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#E91E63', '#9C27B0', '#00BCD4', '#FF5722', '#FFC107', '#03A9F4', '#8BC34A'];
+
     topCustomers.forEach((customer, index) => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${index + 1}</td>
-                <td>${customer.name}</td>
-                <td>¥${customer.total.toFixed(2)}</td>
-            </tr>
-        `;
+        const x = padding + index * (barWidth + 10);
+        const total = customer.total || 0;
+        const barHeight = total * scale;
+        const y = canvas.height - padding - barHeight;
+
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        // 绘制客户名称
+        ctx.fillStyle = '#333';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        const customerName = customer.name || '未知';
+        const shortName = customerName.length > 4 ? customerName.substring(0, 4) + '..' : customerName;
+        ctx.fillText(shortName, x + barWidth / 2, canvas.height - padding + 15);
     });
 }
 
@@ -1063,27 +1608,103 @@ async function renderSalesTable(salesData = null) {
         salesData = await loadSales();
     }
 
-    const tbody = document.getElementById('salesTableBody');
-    if (!tbody) return;
+    // 应用筛选器
+    const customerFilter = document.getElementById('salesFilterCustomer')?.value || 'all';
+    const categoryFilter = document.getElementById('salesFilterCategory')?.value || 'all';
+    const productFilter = document.getElementById('salesFilterProduct')?.value || 'all';
+    const statusFilter = document.getElementById('salesFilterStatus')?.value || 'all';
+    const dateStart = document.getElementById('salesFilterDateStart')?.value || '';
+    const dateEnd = document.getElementById('salesFilterDateEnd')?.value || '';
 
-    tbody.innerHTML = '';
-    salesData.forEach(sale => {
+    let filteredSales = salesData.filter(sale => {
         const customer = customers.find(c => c.id === sale.customer_id);
         const product = products.find(p => p.id === sale.product_id);
 
-        tbody.innerHTML += `
-            <tr>
-                <td>${sale.sale_date}</td>
-                <td>${customer ? customer.name : '未知'}</td>
-                <td>${product ? product.name : '未知'}</td>
-                <td>${sale.quantity.toFixed(1)}</td>
-                <td>¥${sale.unit_price.toFixed(2)}</td>
-                <td>¥${sale.total_amount.toFixed(2)}</td>
-                <td>${sale.payment_status}</td>
-                <td>
-                    <button class="btn-danger" onclick="deleteSaleById(${sale.id})">删除</button>
-                </td>
-            </tr>
+        // 客户筛选
+        if (customerFilter !== 'all' && sale.customer_id !== parseInt(customerFilter)) {
+            return false;
+        }
+
+        // 品类筛选
+        if (categoryFilter !== 'all' && product?.category !== categoryFilter) {
+            return false;
+        }
+
+        // 产品筛选
+        if (productFilter !== 'all' && sale.product_id !== parseInt(productFilter)) {
+            return false;
+        }
+
+        // 状态筛选
+        if (statusFilter !== 'all') {
+            const statusMap = { 'paid': '已付款', 'unpaid': '未付款', 'partial': '部分付款' };
+            if (sale.payment_status !== statusMap[statusFilter]) {
+                return false;
+            }
+        }
+
+        // 日期范围筛选
+        if (dateStart && sale.sale_date < dateStart) {
+            return false;
+        }
+        if (dateEnd && sale.sale_date > dateEnd) {
+            return false;
+        }
+
+        return true;
+    });
+
+    const cardGrid = document.getElementById('salesCardGrid');
+    if (!cardGrid) return;
+
+    cardGrid.innerHTML = '';
+    filteredSales.forEach(sale => {
+        const customer = customers.find(c => c.id === sale.customer_id);
+        const product = products.find(p => p.id === sale.product_id);
+
+        const paymentStatusClass = {
+            '已付款': 'payment-paid',
+            '未付款': 'payment-unpaid',
+            '部分付款': 'payment-partial'
+        }[sale.payment_status] || '';
+
+        cardGrid.innerHTML += `
+            <div class="data-card sales">
+                <div class="data-card-header">
+                    <span class="data-card-title">${sale.sale_date || '-'}</span>
+                    <span class="data-card-badge ${paymentStatusClass}">${sale.payment_status || '-'}</span>
+                </div>
+                <div class="data-card-body">
+                    <div class="data-card-row">
+                        <span class="data-card-label">客户</span>
+                        <span class="data-card-value">${customer ? customer.name : '未知'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">产品</span>
+                        <span class="data-card-value">${product ? product.name : '未知'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">数量</span>
+                        <span class="data-card-value">${Number(sale.quantity || 0).toFixed(1)} 斤</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">单价</span>
+                        <span class="data-card-value">¥${Number(sale.unit_price || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">金额</span>
+                        <span class="data-card-value highlight">¥${Number(sale.total_amount || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">备注</span>
+                        <span class="data-card-value">${sale.notes || '-'}</span>
+                    </div>
+                </div>
+                <div class="data-card-actions">
+                    <button class="btn-primary" onclick="window.editSale(${sale.id})">编辑</button>
+                    <button class="btn-danger" onclick="window.deleteSaleById(${sale.id})">删除</button>
+                </div>
+            </div>
         `;
     });
 
@@ -1097,22 +1718,61 @@ async function renderExpenseTable(expensesData = null) {
         expensesData = await loadExpenses();
     }
 
-    const tbody = document.getElementById('expenseTableBody');
-    if (!tbody) return;
+    // 应用筛选器
+    const categoryFilter = document.getElementById('expenseFilterCategory')?.value || 'all';
+    const dateStart = document.getElementById('expenseFilterDateStart')?.value || '';
+    const dateEnd = document.getElementById('expenseFilterDateEnd')?.value || '';
 
-    tbody.innerHTML = '';
-    expensesData.forEach(expense => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${expense.expense_date}</td>
-                <td>${expense.category}</td>
-                <td>¥${expense.amount.toFixed(2)}</td>
-                <td>${expense.description || '-'}</td>
-                <td>${expense.payment_method || '-'}</td>
-                <td>
-                    <button class="btn-danger" onclick="deleteExpenseById(${expense.id})">删除</button>
-                </td>
-            </tr>
+    let filteredExpenses = expensesData.filter(expense => {
+        // 分类筛选
+        if (categoryFilter !== 'all' && expense.category !== categoryFilter) {
+            return false;
+        }
+
+        // 日期范围筛选
+        if (dateStart && expense.expense_date < dateStart) {
+            return false;
+        }
+        if (dateEnd && expense.expense_date > dateEnd) {
+            return false;
+        }
+
+        return true;
+    });
+
+    const cardGrid = document.getElementById('expenseCardGrid');
+    if (!cardGrid) return;
+
+    cardGrid.innerHTML = '';
+    filteredExpenses.forEach(expense => {
+        cardGrid.innerHTML += `
+            <div class="data-card expense">
+                <div class="data-card-header">
+                    <span class="data-card-title">${expense.expense_date || '-'}</span>
+                    <span class="data-card-badge">${expense.category || '-'}</span>
+                </div>
+                <div class="data-card-body">
+                    <div class="data-card-row">
+                        <span class="data-card-label">分类</span>
+                        <span class="data-card-value">${expense.category || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">金额</span>
+                        <span class="data-card-value highlight">¥${Number(expense.amount || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">支付方式</span>
+                        <span class="data-card-value">${expense.payment_method || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">备注</span>
+                        <span class="data-card-value">${expense.description || '-'}</span>
+                    </div>
+                </div>
+                <div class="data-card-actions">
+                    <button class="btn-danger" onclick="window.deleteExpenseById(${expense.id})">删除</button>
+                </div>
+            </div>
         `;
     });
 }
@@ -1121,22 +1781,59 @@ async function renderExpenseTable(expensesData = null) {
 async function renderCustomerTable() {
     await loadCustomers();
     const tbody = document.getElementById('customerTableBody');
-    if (!tbody) return;
+    if (!tbody) {
+        console.warn('客户表格元素不存在');
+        return;
+    }
 
-    tbody.innerHTML = '';
+    console.log('渲染客户表格，客户数量:', customers.length);
+
+    const typeMap = {
+        'regular': '长期客户',
+        'wholesale': '批发商',
+        'retail': '零售客户',
+        'restaurant': '餐饮客户'
+    };
+
+    const cardGrid = document.getElementById('customerCardGrid');
+    if (!cardGrid) {
+        console.warn('客户卡片容器不存在');
+        return;
+    }
+
+    cardGrid.innerHTML = '';
     customers.forEach(customer => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${customer.name}</td>
-                <td>${customer.type}</td>
-                <td>${customer.phone || '-'}</td>
-                <td>${customer.address || '-'}</td>
-                <td>¥${customer.total_sales.toFixed(2)}</td>
-                <td>¥${customer.total_debt.toFixed(2)}</td>
-                <td>
-                    <button class="btn-danger" onclick="deleteCustomerById(${customer.id})">删除</button>
-                </td>
-            </tr>
+        console.log('客户数据:', customer);
+        const typeText = typeMap[customer.type] || customer.type || '未知';
+        cardGrid.innerHTML += `
+            <div class="data-card customer">
+                <div class="data-card-header">
+                    <span class="data-card-title">${customer.name || '-'}</span>
+                    <span class="data-card-badge">${typeText}</span>
+                </div>
+                <div class="data-card-body">
+                    <div class="data-card-row">
+                        <span class="data-card-label">电话</span>
+                        <span class="data-card-value">${customer.phone || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">地址</span>
+                        <span class="data-card-value">${customer.address || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">累计销售额</span>
+                        <span class="data-card-value highlight">¥${(customer.total_sales || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">累计欠款</span>
+                        <span class="data-card-value">¥${(customer.total_debt || 0).toFixed(2)}</span>
+                    </div>
+                </div>
+                <div class="data-card-actions">
+                    <button class="btn-primary" onclick="window.editCustomer(${customer.id})">编辑</button>
+                    <button class="btn-danger" onclick="window.deleteCustomerById(${customer.id})">删除</button>
+                </div>
+            </div>
         `;
     });
 
@@ -1149,24 +1846,195 @@ async function renderProductTable() {
     const tbody = document.getElementById('productTableBody');
     if (!tbody) return;
 
-    tbody.innerHTML = '';
+    const cardGrid = document.getElementById('productCardGrid');
+    if (!cardGrid) return;
+
+    cardGrid.innerHTML = '';
     products.forEach(product => {
-        tbody.innerHTML += `
-            <tr>
-                <td>${product.name}</td>
-                <td>${product.category}</td>
-                <td>¥${product.suggested_price.toFixed(2)}</td>
-                <td>${product.supplier || '-'}</td>
-                <td>${product.total_quantity.toFixed(1)}</td>
-                <td>¥${product.total_sales.toFixed(2)}</td>
-                <td>
-                    <button class="btn-danger" onclick="deleteProductById(${product.id})">删除</button>
-                </td>
-            </tr>
+        cardGrid.innerHTML += `
+            <div class="data-card product">
+                <div class="data-card-header">
+                    <span class="data-card-title">${product.name || '-'}</span>
+                    <span class="data-card-badge">${product.category || '-'}</span>
+                </div>
+                <div class="data-card-body">
+                    <div class="data-card-row">
+                        <span class="data-card-label">分类</span>
+                        <span class="data-card-value">${product.category || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">建议单价</span>
+                        <span class="data-card-value">¥${Number(product.suggested_price || 0).toFixed(2)}/斤</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">供应商</span>
+                        <span class="data-card-value">${product.supplier || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">累计销量</span>
+                        <span class="data-card-value">${Number(product.total_quantity || 0).toFixed(1)} 斤</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">累计销售额</span>
+                        <span class="data-card-value highlight">¥${Number(product.total_sales || 0).toFixed(2)}</span>
+                    </div>
+                </div>
+                <div class="data-card-actions">
+                    <button class="btn-primary" onclick="window.editProduct(${product.id})">编辑</button>
+                    <button class="btn-danger" onclick="window.deleteProductById(${product.id})">删除</button>
+                </div>
+            </div>
         `;
     });
 
     updateProductSelects();
+}
+
+// 渲染库存表格
+async function renderInventoryTable(inventoryData = null) {
+    if (inventoryData === null) {
+        inventoryData = await loadInventory();
+    }
+
+    // 应用筛选器
+    const statusFilter = document.getElementById('inventoryFilterStatus')?.value || 'all';
+
+    let filteredInventory = inventoryData.filter(item => {
+        if (statusFilter !== 'all' && item.is_active !== parseInt(statusFilter)) {
+            return false;
+        }
+        return true;
+    });
+
+    const cardGrid = document.getElementById('inventoryCardGrid');
+    if (!cardGrid) return;
+
+    cardGrid.innerHTML = '';
+    filteredInventory.forEach(item => {
+        const statusText = item.is_active ? '启用' : '禁用';
+        const statusClass = item.is_active ? 'status-active' : 'status-inactive';
+
+        cardGrid.innerHTML += `
+            <div class="data-card inventory">
+                <div class="data-card-header">
+                    <span class="data-card-title">${item.product_name || '未知产品'}</span>
+                    <span class="data-card-badge ${statusClass}">${statusText}</span>
+                </div>
+                <div class="data-card-body">
+                    <div class="data-card-row">
+                        <span class="data-card-label">分类</span>
+                        <span class="data-card-value">${item.product_category || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">数量</span>
+                        <span class="data-card-value highlight">${Number(item.quantity || 0).toFixed(1)} ${item.unit || '斤'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">进货单价</span>
+                        <span class="data-card-value">¥${Number(item.purchase_price || 0).toFixed(2)}/${item.unit || '斤'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">进货日期</span>
+                        <span class="data-card-value">${item.purchase_date || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">供应商</span>
+                        <span class="data-card-value">${item.supplier || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">备注</span>
+                        <span class="data-card-value">${item.notes || '-'}</span>
+                    </div>
+                </div>
+                <div class="data-card-actions">
+                    <button class="btn-primary" onclick="window.editInventory(${item.id})">编辑</button>
+                    <button class="btn-danger" onclick="window.deleteInventoryById(${item.id})">删除</button>
+                </div>
+            </div>
+        `;
+    });
+}
+
+// 渲染每月固定支出表格
+async function renderMonthlyExpenseTable(monthlyExpensesData = null) {
+    if (monthlyExpensesData === null) {
+        monthlyExpensesData = await loadMonthlyExpenses();
+    }
+
+    // 应用筛选器
+    const statusFilter = document.getElementById('monthlyExpenseFilterStatus')?.value || 'all';
+
+    let filteredExpenses = monthlyExpensesData.filter(expense => {
+        // 状态筛选
+        if (statusFilter !== 'all' && expense.is_active !== parseInt(statusFilter)) {
+            return false;
+        }
+
+        return true;
+    });
+
+    const tbody = document.getElementById('monthlyExpenseTableBody');
+    if (!tbody) return;
+
+    const cardGrid = document.getElementById('monthlyExpenseCardGrid');
+    if (!cardGrid) return;
+
+    cardGrid.innerHTML = '';
+    filteredExpenses.forEach(expense => {
+        const statusText = expense.is_active ? '启用' : '禁用';
+        const statusClass = expense.is_active ? 'status-active' : 'status-inactive';
+
+        const cycleTypeText = {
+            'monthly': '每月',
+            'quarterly': '每季度',
+            'yearly': '每年'
+        }[expense.cycle_type] || '每月';
+
+        const cycleTypeClass = {
+            'monthly': 'cycle-monthly',
+            'quarterly': 'cycle-quarterly',
+            'yearly': 'cycle-yearly'
+        }[expense.cycle_type] || 'cycle-monthly';
+
+        cardGrid.innerHTML += `
+            <div class="data-card monthly-expense">
+                <div class="data-card-header">
+                    <span class="data-card-title">${expense.name || '-'}</span>
+                    <span class="data-card-badge ${statusClass}">${statusText}</span>
+                </div>
+                <div class="data-card-body">
+                    <div class="data-card-row">
+                        <span class="data-card-label">分类</span>
+                        <span class="data-card-value">${expense.category || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">金额</span>
+                        <span class="data-card-value highlight">¥${Number(expense.amount || 0).toFixed(2)}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">支付方式</span>
+                        <span class="data-card-value">${expense.payment_method || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">开始日期</span>
+                        <span class="data-card-value">${expense.start_date || '-'}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">循环周期</span>
+                        <span class="data-card-badge ${cycleTypeClass}">${cycleTypeText}</span>
+                    </div>
+                    <div class="data-card-row">
+                        <span class="data-card-label">备注</span>
+                        <span class="data-card-value">${expense.description || '-'}</span>
+                    </div>
+                </div>
+                <div class="data-card-actions">
+                    <button class="btn-primary" onclick="window.editMonthlyExpense(${expense.id})">编辑</button>
+                    <button class="btn-danger" onclick="window.deleteMonthlyExpenseById(${expense.id})">删除</button>
+                </div>
+            </div>
+        `;
+    });
 }
 
 // 初始化报表日期
@@ -1181,88 +2049,113 @@ function initializeReportDates() {
 
 // 渲染报表
 function renderReport(reportData) {
-    const reportSection = document.getElementById('reportSection');
+    if (!reportData || !reportData.summary) {
+        console.error('报表数据无效:', reportData);
+        return;
+    }
 
-    const productRows = reportData.productDetails.map(p => `
-        <tr>
-            <td>${p.name}</td>
-            <td>${p.category}</td>
-            <td>${p.quantity.toFixed(1)}</td>
-            <td>¥${p.avg_price.toFixed(2)}</td>
-            <td>¥${p.total.toFixed(2)}</td>
-        </tr>
-    `).join('');
+    // 更新报表汇总数据 - 处理可能的 undefined 值
+    const summary = reportData.summary;
+    const totalSales = summary.total_sales || 0;
+    const totalWeight = summary.total_quantity || 0;
+    const totalExpense = summary.total_expenses || 0;
+    const netProfit = summary.net_profit !== undefined ? summary.net_profit : 0;
+    const avgPrice = summary.avgPrice || summary.avg_price || 0;
+    const salesCount = summary.sales_count || 0;
 
-    const customerRows = reportData.customerDetails.map(c => `
-        <tr>
-            <td>${c.name}</td>
-            <td>${c.type}</td>
-            <td>${c.count}</td>
-            <td>¥${c.total.toFixed(2)}</td>
-        </tr>
-    `).join('');
+    const totalSalesEl = document.getElementById('reportTotalSales');
+    if (totalSalesEl) totalSalesEl.textContent = `¥${Number(totalSales).toFixed(2)}`;
 
-    reportSection.innerHTML = `
-        <h3>报表统计 (${reportData.period.start_date} ~ ${reportData.period.end_date})</h3>
-        <div class="report-summary">
-            <div class="summary-card">
-                <h4>总销售额</h4>
-                <p class="summary-value">¥${reportData.summary.total_sales.toFixed(2)}</p>
-            </div>
-            <div class="summary-card">
-                <h4>总销量</h4>
-                <p class="summary-value">${reportData.summary.total_quantity.toFixed(1)} 斤</p>
-            </div>
-            <div class="summary-card">
-                <h4>销售笔数</h4>
-                <p class="summary-value">${reportData.summary.sales_count} 笔</p>
-            </div>
-            <div class="summary-card">
-                <h4>总支出</h4>
-                <p class="summary-value">¥${reportData.summary.total_expenses.toFixed(2)}</p>
-            </div>
-            <div class="summary-card">
-                <h4>净利润</h4>
-                <p class="summary-value ${reportData.summary.net_profit >= 0 ? 'profit' : 'loss'}">
-                    ¥${reportData.summary.net_profit.toFixed(2)}
-                </p>
-            </div>
-            <div class="summary-card">
-                <h4>平均单价</h4>
-                <p class="summary-value">¥${reportData.summary.avgPrice.toFixed(2)}/斤</p>
-            </div>
-        </div>
+    const totalWeightEl = document.getElementById('reportTotalWeight');
+    if (totalWeightEl) totalWeightEl.textContent = `${Number(totalWeight).toFixed(1)} 斤`;
 
-        <h4>产品销售明细</h4>
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>产品名称</th>
-                    <th>分类</th>
-                    <th>销量</th>
-                    <th>平均单价</th>
-                    <th>销售额</th>
-                </tr>
-            </thead>
-            <tbody>${productRows}</tbody>
-        </table>
+    const totalExpenseEl = document.getElementById('reportTotalExpense');
+    if (totalExpenseEl) totalExpenseEl.textContent = `¥${Number(totalExpense).toFixed(2)}`;
 
-        <h4>客户销售明细</h4>
-        <table class="report-table">
-            <thead>
-                <tr>
-                    <th>客户名称</th>
-                    <th>类型</th>
-                    <th>交易次数</th>
-                    <th>总销售额</th>
-                </tr>
-            </thead>
-            <tbody>${customerRows}</tbody>
-        </table>
-    `;
+    const netProfitEl = document.getElementById('reportNetProfit');
+    if (netProfitEl) netProfitEl.textContent = `¥${Number(netProfit).toFixed(2)}`;
 
-    reportSection.style.display = 'block';
-    reportSection.scrollIntoView({ behavior: 'smooth' });
+    const avgPriceEl = document.getElementById('reportAvgPrice');
+    if (avgPriceEl) avgPriceEl.textContent = `¥${Number(avgPrice).toFixed(2)}/斤`;
+
+    const orderCountEl = document.getElementById('reportOrderCount');
+    if (orderCountEl) orderCountEl.textContent = `${salesCount} 笔`;
+
+    // 绘制报表图表
+    drawReportProductChart(reportData.productDetails || []);
+    drawReportCustomerChart(reportData.customerDetails || []);
+}
+
+// 绘制报表产品图表
+function drawReportProductChart(productDetails) {
+    const canvas = document.getElementById('reportProductChart');
+    if (!canvas || !productDetails || productDetails.length === 0) return;
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const total = productDetails.reduce((sum, p) => sum + (p.total || 0), 0);
+
+    if (total === 0) return;
+
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radius = Math.min(centerX, centerY) - 20;
+
+    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#E91E63', '#9C27B0', '#00BCD4'];
+
+    let startAngle = 0;
+    productDetails.forEach((product, index) => {
+        const productTotal = product.total || 0;
+        const sliceAngle = (productTotal / total) * 2 * Math.PI;
+        const endAngle = startAngle + sliceAngle;
+
+        ctx.beginPath();
+        ctx.moveTo(centerX, centerY);
+        ctx.arc(centerX, centerY, radius, startAngle, endAngle);
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fill();
+
+        startAngle = endAngle;
+    });
+}
+
+// 绘制报表客户图表
+function drawReportCustomerChart(customerDetails) {
+    const canvas = document.getElementById('reportCustomerChart');
+    if (!canvas || !customerDetails || customerDetails.length === 0) return;
+
+    const ctx = canvas.getContext('2d');
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const padding = 60;
+    const chartWidth = canvas.width - padding * 2;
+    const chartHeight = canvas.height - padding * 2;
+
+    const maxTotal = Math.max(...customerDetails.map(c => c.total || 0));
+    const scale = maxTotal > 0 ? chartHeight / maxTotal : 1;
+
+    const barWidth = chartWidth / customerDetails.length - 10;
+
+    const colors = ['#4CAF50', '#2196F3', '#FF9800', '#E91E63', '#9C27B0', '#00BCD4'];
+
+    customerDetails.forEach((customer, index) => {
+        const x = padding + index * (barWidth + 10);
+        const customerTotal = customer.total || 0;
+        const barHeight = customerTotal * scale;
+        const y = canvas.height - padding - barHeight;
+
+        ctx.fillStyle = colors[index % colors.length];
+        ctx.fillRect(x, y, barWidth, barHeight);
+
+        // 绘制客户名称
+        ctx.fillStyle = '#333';
+        ctx.font = '10px Arial';
+        ctx.textAlign = 'center';
+        const customerName = customer.name || '未知';
+        const shortName = customerName.length > 4 ? customerName.substring(0, 4) + '..' : customerName;
+        ctx.fillText(shortName, x + barWidth / 2, canvas.height - padding + 15);
+    });
 }
 
 // 下载JSON文件
@@ -1308,5 +2201,494 @@ window.deleteProductById = async function(id) {
         if (await deleteProduct(id)) {
             await renderProductTable();
         }
+    }
+};
+
+window.deleteMonthlyExpenseById = async function(id) {
+    if (confirm('确定要删除这条固定支出吗？')) {
+        if (await deleteMonthlyExpense(id)) {
+            await renderMonthlyExpenseTable();
+        }
+    }
+};
+
+// 编辑库存
+window.editInventory = async function(id) {
+    const item = inventory.find(i => i.id === id);
+    if (!item) {
+        alert('库存记录不存在');
+        return;
+    }
+
+    // 填充模态框表单
+    document.getElementById('modalInventoryProduct').innerHTML = products.map(p =>
+        `<option value="${p.id}" ${p.id === item.product_id ? 'selected' : ''}>${p.name} (${p.category})</option>`
+    ).join('');
+    document.getElementById('modalInventoryQuantity').value = item.quantity || '';
+    document.getElementById('modalInventoryUnit').value = item.unit || '斤';
+    document.getElementById('modalInventoryPurchasePrice').value = item.purchase_price || '';
+    document.getElementById('modalInventoryPurchaseDate').value = item.purchase_date || '';
+    document.getElementById('modalInventorySupplier').value = item.supplier || '';
+    document.getElementById('modalInventoryNotes').value = item.notes || '';
+    document.getElementById('modalInventoryStatus').value = item.is_active !== undefined ? item.is_active.toString() : '1';
+
+    // 更改表单行为为更新
+    const form = document.getElementById('modalInventoryForm');
+    form.dataset.id = id;
+
+    // 显示模态框
+    const modal = document.getElementById('inventoryModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+};
+
+// 删除库存
+window.deleteInventoryById = async function(id) {
+    if (confirm('确定要删除这条库存记录吗？')) {
+        if (await deleteInventory(id)) {
+            await renderInventoryTable();
+        }
+    }
+};
+
+// 清除库存筛选
+window.clearInventoryFilters = async function() {
+    try {
+        document.getElementById('inventoryFilterStatus').value = 'all';
+        await renderInventoryTable();
+    } catch (err) {
+        console.error('清除库存筛选失败:', err);
+    }
+};
+
+// 应用库存筛选
+window.applyInventoryFilters = async function() {
+    try {
+        await renderInventoryTable();
+    } catch (err) {
+        console.error('应用库存筛选失败:', err);
+    }
+};
+
+// 打开客户模态框
+window.openCustomerModal = function() {
+    const modal = document.getElementById('customerModal');
+    if (modal) modal.style.display = 'flex';
+};
+
+// 编辑客户
+window.editCustomer = async function(id) {
+    const customer = customers.find(c => c.id === id);
+    if (!customer) {
+        alert('客户不存在');
+        return;
+    }
+
+    // 填充模态框表单
+    document.getElementById('modalCustomerName').value = customer.name || '';
+    document.getElementById('modalCustomerPhone').value = customer.phone || '';
+    document.getElementById('modalCustomerAddress').value = customer.address || '';
+    document.getElementById('modalCustomerType').value = customer.type || 'regular';
+
+    // 更改表单行为为更新
+    const form = document.getElementById('modalCustomerForm');
+    form.dataset.mode = 'edit';
+    form.dataset.id = id;
+
+    // 显示模态框
+    const modal = document.getElementById('customerModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        modal.querySelector('h3').textContent = '编辑客户';
+    }
+};
+
+// 打开产品模态框
+window.openProductModal = function() {
+    const modal = document.getElementById('productModal');
+    if (modal) modal.style.display = 'flex';
+};
+
+// 编辑销售记录
+window.editSale = async function(id) {
+    const sale = sales.find(s => s.id === id);
+    if (!sale) {
+        alert('销售记录不存在');
+        return;
+    }
+
+    // 填充模态框表单
+    document.getElementById('modalSaleDate').value = sale.sale_date || '';
+    document.getElementById('modalSaleWeight').value = sale.quantity || '';
+    document.getElementById('modalSalePrice').value = sale.unit_price || '';
+    document.getElementById('modalSaleTotalAmount').value = sale.total_amount || '';
+    document.getElementById('modalSaleNotes').value = sale.notes || '';
+
+    // 填充客户选择
+    const customerSelect = document.getElementById('modalSaleCustomer');
+    customerSelect.innerHTML = customers.map(c =>
+        `<option value="${c.id}" ${c.id === sale.customer_id ? 'selected' : ''}>${c.name}</option>`
+    ).join('');
+
+    // 填充产品选择
+    const productSelect = document.getElementById('modalSaleProduct');
+    productSelect.innerHTML = products.map(p =>
+        `<option value="${p.id}" ${p.id === sale.product_id ? 'selected' : ''}>${p.name} (${p.category})</option>`
+    ).join('');
+
+    // 设置付款状态
+    const statusMap = { '已付款': 'paid', '未付款': 'unpaid', '部分付款': 'partial' };
+    const statusSelect = document.getElementById('modalSalePaymentStatus');
+    statusSelect.value = statusMap[sale.payment_status] || 'paid';
+
+    // 更改表单行为为更新
+    const form = document.getElementById('modalSaleForm');
+    form.dataset.id = id;
+
+    // 显示模态框
+    const modal = document.getElementById('saleModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+};
+
+// 编辑产品
+window.editProduct = async function(id) {
+    const product = products.find(p => p.id === id);
+    if (!product) {
+        alert('产品不存在');
+        return;
+    }
+
+    // 填充模态框表单
+    document.getElementById('modalProductName').value = product.name || '';
+    document.getElementById('modalProductCategory').value = product.category || '鱼类';
+    document.getElementById('modalProductPrice').value = product.suggested_price || '';
+    document.getElementById('modalProductSupplier').value = product.supplier || '';
+
+    // 更改表单行为为更新
+    const form = document.getElementById('modalProductForm');
+    form.dataset.mode = 'edit';
+    form.dataset.id = id;
+
+    // 显示模态框
+    const modal = document.getElementById('productModal');
+    if (modal) {
+        modal.style.display = 'flex';
+        modal.querySelector('h3').textContent = '编辑产品';
+    }
+};
+
+// 编辑每月固定支出
+window.editMonthlyExpense = async function(id) {
+    const expense = monthlyExpenses.find(e => e.id === id);
+    if (!expense) {
+        alert('固定支出不存在');
+        return;
+    }
+
+    // 填充模态框表单
+    document.getElementById('modalMonthlyExpenseName').value = expense.name || '';
+    document.getElementById('modalMonthlyExpenseCategory').value = expense.category || '其他';
+    document.getElementById('modalMonthlyExpenseAmount').value = expense.amount || '';
+    document.getElementById('modalMonthlyExpensePaymentMethod').value = expense.payment_method || '现金';
+    document.getElementById('modalMonthlyExpenseNotes').value = expense.description || '';
+    document.getElementById('modalMonthlyExpenseStatus').value = expense.is_active !== undefined ? expense.is_active.toString() : '1';
+    document.getElementById('modalMonthlyExpenseStartDate').value = expense.start_date || '';
+    document.getElementById('modalMonthlyExpenseCycleType').value = expense.cycle_type || 'monthly';
+
+    // 更改表单行为为更新
+    const form = document.getElementById('modalMonthlyExpenseForm');
+    form.dataset.id = id;
+
+    // 显示模态框
+    const modal = document.getElementById('monthlyExpenseModal');
+    if (modal) {
+        modal.style.display = 'flex';
+    }
+};
+
+// 清除销售筛选
+window.clearSalesFilters = async function() {
+    try {
+        document.getElementById('salesFilterCustomer').value = 'all';
+        document.getElementById('salesFilterCategory').value = 'all';
+        document.getElementById('salesFilterProduct').value = 'all';
+        document.getElementById('salesFilterStatus').value = 'all';
+        document.getElementById('salesFilterDateStart').value = '';
+        document.getElementById('salesFilterDateEnd').value = '';
+        await renderSalesTable();
+    } catch (err) {
+        console.error('清除销售筛选失败:', err);
+    }
+};
+
+// 应用销售筛选
+window.applySalesFilters = async function() {
+    try {
+        await renderSalesTable();
+    } catch (err) {
+        console.error('应用销售筛选失败:', err);
+    }
+};
+
+// 清除支出筛选
+window.clearExpenseFilters = async function() {
+    try {
+        document.getElementById('expenseFilterCategory').value = 'all';
+        document.getElementById('expenseFilterDateStart').value = '';
+        document.getElementById('expenseFilterDateEnd').value = '';
+        await renderExpenseTable();
+    } catch (err) {
+        console.error('清除支出筛选失败:', err);
+    }
+};
+
+// 应用支出筛选
+window.applyExpenseFilters = async function() {
+    try {
+        await renderExpenseTable();
+    } catch (err) {
+        console.error('应用支出筛选失败:', err);
+    }
+};
+
+// 清除每月固定支出筛选
+window.clearMonthlyExpenseFilters = async function() {
+    try {
+        document.getElementById('monthlyExpenseFilterStatus').value = 'all';
+        await renderMonthlyExpenseTable();
+    } catch (err) {
+        console.error('清除每月固定支出筛选失败:', err);
+    }
+};
+
+// 应用每月固定支出筛选
+window.applyMonthlyExpenseFilters = async function() {
+    try {
+        await renderMonthlyExpenseTable();
+    } catch (err) {
+        console.error('应用每月固定支出筛选失败:', err);
+    }
+};
+
+// 生成报表（HTML按钮调用）
+window.generateReport = async function() {
+    const startDate = document.getElementById('reportStartDate').value;
+    const endDate = document.getElementById('reportEndDate').value;
+
+    if (!startDate || !endDate) {
+        alert('请选择日期范围');
+        return;
+    }
+
+    const reportData = await fetchReportData(startDate, endDate);
+    renderReport(reportData);
+};
+
+// 导出报表为 Excel
+window.exportReport = async function() {
+    try {
+        const startDate = document.getElementById('reportStartDate').value;
+        const endDate = document.getElementById('reportEndDate').value;
+
+        if (!startDate || !endDate) {
+            alert('请选择日期范围');
+            return;
+        }
+
+        // 动态加载 ExcelJS
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/exceljs@4.4.0/dist/exceljs.min.js';
+        script.onload = async () => {
+            try {
+                // 获取销售记录和支出记录
+                let reportSales = [];
+                let reportExpenses = [];
+                let summary = {};
+
+                if (USE_API) {
+                    try {
+                        const salesResult = await apiCall(`/sales?start_date=${startDate}&end_date=${endDate}`);
+                        reportSales = salesResult.data || [];
+                        const expensesResult = await apiCall(`/expenses?start_date=${startDate}&end_date=${endDate}`);
+                        reportExpenses = expensesResult.data || [];
+                        const reportData = await fetchReportData(startDate, endDate);
+                        summary = reportData?.summary || {};
+                    } catch (err) {
+                        console.error('获取数据失败:', err);
+                        alert('获取数据失败: ' + err.message);
+                        return;
+                    }
+                } else {
+                    reportSales = sales.filter(s => s.sale_date >= startDate && s.sale_date <= endDate);
+                    reportExpenses = expenses.filter(e => e.expense_date >= startDate && e.expense_date <= endDate);
+                    summary = {
+                        total_sales: reportSales.reduce((sum, s) => sum + s.total_amount, 0),
+                        total_quantity: reportSales.reduce((sum, s) => sum + s.quantity, 0),
+                        total_expenses: reportExpenses.reduce((sum, e) => sum + e.amount, 0),
+                        net_profit: reportSales.reduce((sum, s) => sum + s.total_amount, 0) -
+                                   reportExpenses.reduce((sum, e) => sum + e.amount, 0)
+                    };
+                }
+
+                const workbook = new ExcelJS.Workbook();
+                const worksheet = workbook.addWorksheet('水产批发报表');
+
+                worksheet.columns = [
+                    { width: 12 },
+                    { width: 15 },
+                    { width: 15 },
+                    { width: 10 },
+                    { width: 12 },
+                    { width: 12 },
+                    { width: 10 }
+                ];
+
+                let rowIndex = 1;
+                const titleRow = worksheet.getRow(rowIndex);
+                titleRow.font = { size: 16, bold: true };
+                worksheet.mergeCells('A1:G1');
+                worksheet.getCell('A1').value = '水产批发报表';
+                worksheet.getCell('A1').alignment = { horizontal: 'center' };
+
+                rowIndex += 1;
+                worksheet.getRow(rowIndex).values = ['', '', '', '', '', '', ''];
+                rowIndex += 1;
+                worksheet.getCell(`A${rowIndex}`).value = '日期范围:';
+                worksheet.getCell(`B${rowIndex}`).value = startDate;
+                worksheet.getCell(`C${rowIndex}`).value = '至';
+                worksheet.getCell(`D${rowIndex}`).value = endDate;
+
+                rowIndex += 2;
+                const salesTitleRow = worksheet.getRow(rowIndex);
+                salesTitleRow.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+                salesTitleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4CAF50' } };
+                worksheet.mergeCells(`A${rowIndex}:G${rowIndex}`);
+                worksheet.getCell(`A${rowIndex}`).value = '销售记录';
+
+                rowIndex += 1;
+                const salesHeaderRow = worksheet.getRow(rowIndex);
+                salesHeaderRow.font = { bold: true };
+                salesHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F5E9' } };
+                salesHeaderRow.values = ['日期', '客户', '产品', '斤数', '单价', '金额', '状态'];
+                salesHeaderRow.eachCell((cell) => {
+                    cell.alignment = { horizontal: 'center' };
+                    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                });
+
+                reportSales.forEach(sale => {
+                    rowIndex += 1;
+                    const customer = customers.find(c => c.id === sale.customer_id);
+                    const product = products.find(p => p.id === sale.product_id);
+                    const row = worksheet.getRow(rowIndex);
+                    row.values = [
+                        sale.sale_date,
+                        customer?.name || '未知',
+                        product?.name || '未知',
+                        Number(sale.quantity || 0),
+                        Number(sale.unit_price || 0),
+                        Number(sale.total_amount || 0),
+                        sale.payment_status || '未支付'
+                    ];
+                    row.eachCell((cell) => {
+                        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                        if (cell.col >= 4 && cell.col <= 6) {
+                            cell.numFmt = cell.col === 4 ? '0.0' : '0.00';
+                        }
+                    });
+                });
+
+                rowIndex += 2;
+                const expenseTitleRow = worksheet.getRow(rowIndex);
+                expenseTitleRow.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+                expenseTitleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF57C00' } };
+                worksheet.mergeCells(`A${rowIndex}:G${rowIndex}`);
+                worksheet.getCell(`A${rowIndex}`).value = '支出记录';
+
+                rowIndex += 1;
+                const expenseHeaderRow = worksheet.getRow(rowIndex);
+                expenseHeaderRow.font = { bold: true };
+                expenseHeaderRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFE0B2' } };
+                expenseHeaderRow.values = ['日期', '分类', '金额', '支付方式', '备注', '', ''];
+                expenseHeaderRow.eachCell((cell) => {
+                    cell.alignment = { horizontal: 'center' };
+                    cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                });
+
+                reportExpenses.forEach(expense => {
+                    rowIndex += 1;
+                    const row = worksheet.getRow(rowIndex);
+                    row.values = [
+                        expense.expense_date,
+                        expense.category || '-',
+                        Number(expense.amount || 0),
+                        expense.payment_method || '-',
+                        expense.notes || '-',
+                        '',
+                        ''
+                    ];
+                    row.eachCell((cell) => {
+                        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                        if (cell.col === 3) {
+                            cell.numFmt = '0.00';
+                        }
+                    });
+                });
+
+                rowIndex += 2;
+                const summaryTitleRow = worksheet.getRow(rowIndex);
+                summaryTitleRow.font = { size: 14, bold: true, color: { argb: 'FFFFFFFF' } };
+                summaryTitleRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF2196F3' } };
+                worksheet.mergeCells(`A${rowIndex}:G${rowIndex}`);
+                worksheet.getCell(`A${rowIndex}`).value = '汇总';
+
+                const totalSales = summary.total_sales || 0;
+                const totalWeight = summary.total_quantity || 0;
+                const totalExpense = summary.total_expenses || 0;
+                const netProfit = summary.net_profit !== undefined ? summary.net_profit : totalSales - totalExpense;
+
+                const summaryData = [
+                    ['总销售额', totalSales, '', '', '', '', ''],
+                    ['总销量', totalWeight, '斤', '', '', '', ''],
+                    ['总支出', totalExpense, '', '', '', '', ''],
+                    ['净利润', netProfit, '', '', '', '', '']
+                ];
+
+                summaryData.forEach(item => {
+                    rowIndex += 1;
+                    const row = worksheet.getRow(rowIndex);
+                    row.font = { bold: true };
+                    row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE3F2FD' } };
+                    row.values = item;
+                    row.eachCell((cell) => {
+                        if (cell.value !== '' && cell.col === 2) {
+                            cell.numFmt = '0.00';
+                        }
+                        cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+                    });
+                });
+
+                const buffer = await workbook.xlsx.writeBuffer();
+                const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                const link = document.createElement('a');
+                link.href = URL.createObjectURL(blob);
+                link.download = `水产报表_${startDate}_${endDate}.xlsx`;
+                link.click();
+
+            } catch (error) {
+                console.error('生成Excel失败:', error);
+                alert('生成Excel失败: ' + error.message);
+            }
+        };
+        script.onerror = () => {
+            alert('加载Excel库失败，请检查网络连接');
+        };
+        document.head.appendChild(script);
+
+    } catch (error) {
+        console.error('导出报表失败:', error);
+        alert('导出报表失败: ' + error.message);
     }
 };

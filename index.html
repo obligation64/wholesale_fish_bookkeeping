@@ -14,6 +14,8 @@
                 <button class="tab-btn active" data-tab="dashboard">数据看板</button>
                 <button class="tab-btn" data-tab="income">销售管理</button>
                 <button class="tab-btn" data-tab="expense">支出管理</button>
+                <button class="tab-btn" data-tab="monthly-expenses">固定支出</button>
+                <button class="tab-btn" data-tab="inventory">库存管理</button>
                 <button class="tab-btn" data-tab="customers">客户管理</button>
                 <button class="tab-btn" data-tab="products">产品管理</button>
                 <button class="tab-btn" data-tab="report">报表分析</button>
@@ -141,6 +143,9 @@
                         <select id="salesFilterCustomer">
                             <option value="all">全部客户</option>
                         </select>
+                        <select id="salesFilterCategory">
+                            <option value="all">全部品类</option>
+                        </select>
                         <select id="salesFilterProduct">
                             <option value="all">全部产品</option>
                         </select>
@@ -152,26 +157,10 @@
                         </select>
                         <input type="date" id="salesFilterDateStart">
                         <input type="date" id="salesFilterDateEnd">
+                        <button class="btn-primary" onclick="applySalesFilters()">筛选</button>
                         <button class="btn-small" onclick="clearSalesFilters()">清除</button>
                     </div>
-                    <div class="table-wrapper">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>日期</th>
-                                    <th>客户</th>
-                                    <th>产品</th>
-                                    <th>斤数</th>
-                                    <th>单价</th>
-                                    <th>金额</th>
-                                    <th>状态</th>
-                                    <th>备注</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="salesTableBody"></tbody>
-                        </table>
-                    </div>
+                    <div class="card-grid" id="salesCardGrid"></div>
                 </div>
             </section>
 
@@ -241,23 +230,93 @@
                         </select>
                         <input type="date" id="expenseFilterDateStart">
                         <input type="date" id="expenseFilterDateEnd">
+                        <button class="btn-primary" onclick="applyExpenseFilters()">筛选</button>
                         <button class="btn-small" onclick="clearExpenseFilters()">清除</button>
                     </div>
-                    <div class="table-wrapper">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>日期</th>
-                                    <th>分类</th>
-                                    <th>金额</th>
-                                    <th>支付方式</th>
-                                    <th>备注</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="expenseTableBody"></tbody>
-                        </table>
+                    <div class="card-grid" id="expenseCardGrid"></div>
+                </div>
+            </section>
+
+            <!-- 每月固定支出 -->
+            <section id="monthly-expenses" class="tab-content">
+                <div class="form-container">
+                    <h2>💰 添加固定支出</h2>
+                    <form id="monthlyExpenseForm">
+                        <div class="form-group">
+                            <label>支出名称</label>
+                            <input type="text" id="monthlyExpenseName" required placeholder="例如：员工工资">
+                        </div>
+                        <div class="form-group">
+                            <label>支出分类</label>
+                            <select id="monthlyExpenseCategory" required>
+                                <option value="">选择分类</option>
+                                <option value="薪资">薪资</option>
+                                <option value="车辆费用">车辆费用</option>
+                                <option value="油费">油费</option>
+                                <option value="店面">店面</option>
+                                <option value="水电">水电</option>
+                                <option value="进货成本">进货成本</option>
+                                <option value="运输费">运输费</option>
+                                <option value="包装费">包装费</option>
+                                <option value="其他">其他</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>金额 (元)</label>
+                                <input type="number" id="monthlyExpenseAmount" step="0.01" min="0.01" required placeholder="0.00">
+                            </div>
+                            <div class="form-group">
+                                <label>支付方式</label>
+                                <select id="monthlyExpensePaymentMethod">
+                                    <option value="现金">现金</option>
+                                    <option value="银行转账">银行转账</option>
+                                    <option value="微信">微信</option>
+                                    <option value="支付宝">支付宝</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>备注</label>
+                            <textarea id="monthlyExpenseNotes" rows="2" placeholder="添加备注信息..."></textarea>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>开始日期</label>
+                                <input type="date" id="monthlyExpenseStartDate" required>
+                            </div>
+                            <div class="form-group">
+                                <label>循环周期</label>
+                                <select id="monthlyExpenseCycleType" required>
+                                    <option value="monthly">每月</option>
+                                    <option value="quarterly">每季度</option>
+                                    <option value="yearly">每年</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>状态</label>
+                            <select id="monthlyExpenseStatus">
+                                <option value="1">启用</option>
+                                <option value="0">禁用</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn-submit">保存固定支出</button>
+                    </form>
+                </div>
+
+                <div class="list-container">
+                    <h3>📋 固定支出列表</h3>
+                    <div class="filter-bar">
+                        <select id="monthlyExpenseFilterStatus">
+                            <option value="all">全部状态</option>
+                            <option value="1">启用</option>
+                            <option value="0">禁用</option>
+                        </select>
+                        <button class="btn-primary" onclick="applyMonthlyExpenseFilters()">筛选</button>
+                        <button class="btn-small" onclick="clearMonthlyExpenseFilters()">清除</button>
                     </div>
+                    <div class="card-grid" id="monthlyExpenseCardGrid"></div>
                 </div>
             </section>
 
@@ -293,22 +352,7 @@
 
                 <div class="list-container">
                     <h3>📋 客户列表</h3>
-                    <div class="table-wrapper">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>客户名称</th>
-                                    <th>联系电话</th>
-                                    <th>地址</th>
-                                    <th>类型</th>
-                                    <th>累计销售额</th>
-                                    <th>累计欠款</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="customerTableBody"></tbody>
-                        </table>
-                    </div>
+                    <div class="card-grid" id="customerCardGrid"></div>
                 </div>
             </section>
 
@@ -346,22 +390,70 @@
 
                 <div class="list-container">
                     <h3>📋 产品列表</h3>
-                    <div class="table-wrapper">
-                        <table class="data-table">
-                            <thead>
-                                <tr>
-                                    <th>产品名称</th>
-                                    <th>分类</th>
-                                    <th>建议单价</th>
-                                    <th>供应商</th>
-                                    <th>累计销量</th>
-                                    <th>累计销售额</th>
-                                    <th>操作</th>
-                                </tr>
-                            </thead>
-                            <tbody id="productTableBody"></tbody>
-                        </table>
+                    <div class="card-grid" id="productCardGrid"></div>
+                </div>
+            </section>
+
+            <!-- 库存管理 -->
+            <section id="inventory" class="tab-content">
+                <div class="form-container">
+                    <h2>🐟 添加库存</h2>
+                    <form id="inventoryForm">
+                        <div class="form-group">
+                            <label>产品</label>
+                            <select id="inventoryProduct" required>
+                                <option value="">选择产品</option>
+                            </select>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>数量</label>
+                                <input type="number" id="inventoryQuantity" step="0.1" min="0" required placeholder="0.0">
+                            </div>
+                            <div class="form-group">
+                                <label>单位</label>
+                                <select id="inventoryUnit">
+                                    <option value="斤">斤</option>
+                                    <option value="公斤">公斤</option>
+                                    <option value="条">条</option>
+                                    <option value="箱">箱</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label>进货单价 (元/斤)</label>
+                                <input type="number" id="inventoryPurchasePrice" step="0.01" min="0" placeholder="0.00">
+                            </div>
+                            <div class="form-group">
+                                <label>进货日期</label>
+                                <input type="date" id="inventoryPurchaseDate" required>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>供应商</label>
+                            <input type="text" id="inventorySupplier" placeholder="输入供应商">
+                        </div>
+                        <div class="form-group">
+                            <label>备注</label>
+                            <textarea id="inventoryNotes" rows="2" placeholder="添加备注信息..."></textarea>
+                        </div>
+                        <button type="submit" class="btn-submit">保存库存</button>
+                    </form>
+                </div>
+
+                <div class="list-container">
+                    <h3>📋 库存列表</h3>
+                    <div class="filter-bar">
+                        <select id="inventoryFilterStatus">
+                            <option value="all">全部状态</option>
+                            <option value="1">启用</option>
+                            <option value="0">禁用</option>
+                        </select>
+                        <button class="btn-primary" onclick="applyInventoryFilters()">筛选</button>
+                        <button class="btn-small" onclick="clearInventoryFilters()">清除</button>
                     </div>
+                    <div class="card-grid" id="inventoryCardGrid"></div>
                 </div>
             </section>
 
@@ -488,11 +580,181 @@
         </div>
     </div>
 
+    <!-- 每月固定支出编辑模态框 -->
+    <div id="monthlyExpenseModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>编辑固定支出</h3>
+            <form id="modalMonthlyExpenseForm">
+                <div class="form-group">
+                    <label>支出名称</label>
+                    <input type="text" id="modalMonthlyExpenseName" required>
+                </div>
+                <div class="form-group">
+                    <label>支出分类</label>
+                    <select id="modalMonthlyExpenseCategory" required>
+                        <option value="薪资">薪资</option>
+                        <option value="车辆费用">车辆费用</option>
+                        <option value="油费">油费</option>
+                        <option value="店面">店面</option>
+                        <option value="水电">水电</option>
+                        <option value="进货成本">进货成本</option>
+                        <option value="运输费">运输费</option>
+                        <option value="包装费">包装费</option>
+                        <option value="其他">其他</option>
+                    </select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>金额 (元)</label>
+                        <input type="number" id="modalMonthlyExpenseAmount" step="0.01" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>支付方式</label>
+                        <select id="modalMonthlyExpensePaymentMethod">
+                            <option value="现金">现金</option>
+                            <option value="银行转账">银行转账</option>
+                            <option value="微信">微信</option>
+                            <option value="支付宝">支付宝</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <textarea id="modalMonthlyExpenseNotes" rows="2"></textarea>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>开始日期</label>
+                        <input type="date" id="modalMonthlyExpenseStartDate" required>
+                    </div>
+                    <div class="form-group">
+                        <label>循环周期</label>
+                        <select id="modalMonthlyExpenseCycleType" required>
+                            <option value="monthly">每月</option>
+                            <option value="quarterly">每季度</option>
+                            <option value="yearly">每年</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>状态</label>
+                    <select id="modalMonthlyExpenseStatus">
+                        <option value="1">启用</option>
+                        <option value="0">禁用</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-submit">保存</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 库存编辑模态框 -->
+    <div id="inventoryModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>编辑库存</h3>
+            <form id="modalInventoryForm">
+                <div class="form-group">
+                    <label>产品</label>
+                    <select id="modalInventoryProduct" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>数量</label>
+                        <input type="number" id="modalInventoryQuantity" step="0.1" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>单位</label>
+                        <select id="modalInventoryUnit">
+                            <option value="斤">斤</option>
+                            <option value="公斤">公斤</option>
+                            <option value="条">条</option>
+                            <option value="箱">箱</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>进货单价 (元/斤)</label>
+                        <input type="number" id="modalInventoryPurchasePrice" step="0.01" min="0">
+                    </div>
+                    <div class="form-group">
+                        <label>进货日期</label>
+                        <input type="date" id="modalInventoryPurchaseDate" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>供应商</label>
+                    <input type="text" id="modalInventorySupplier">
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <textarea id="modalInventoryNotes" rows="2"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>状态</label>
+                    <select id="modalInventoryStatus">
+                        <option value="1">启用</option>
+                        <option value="0">禁用</option>
+                    </select>
+                </div>
+                <button type="submit" class="btn-submit">保存</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- 销售记录编辑模态框 -->
+    <div id="saleModal" class="modal">
+        <div class="modal-content">
+            <span class="close">&times;</span>
+            <h3>编辑销售记录</h3>
+            <form id="modalSaleForm">
+                <div class="form-group">
+                    <label>日期</label>
+                    <input type="date" id="modalSaleDate" required>
+                </div>
+                <div class="form-group">
+                    <label>客户</label>
+                    <select id="modalSaleCustomer" required></select>
+                </div>
+                <div class="form-group">
+                    <label>产品</label>
+                    <select id="modalSaleProduct" required></select>
+                </div>
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>斤数</label>
+                        <input type="number" id="modalSaleWeight" step="0.1" min="0" required>
+                    </div>
+                    <div class="form-group">
+                        <label>单价 (元/斤)</label>
+                        <input type="number" id="modalSalePrice" step="0.01" min="0" required>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>总金额</label>
+                    <input type="number" id="modalSaleTotalAmount" step="0.01" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label>付款状态</label>
+                    <select id="modalSalePaymentStatus">
+                        <option value="paid">已付款</option>
+                        <option value="unpaid">未付款</option>
+                        <option value="partial">部分付款</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>备注</label>
+                    <textarea id="modalSaleNotes" rows="2"></textarea>
+                </div>
+                <button type="submit" class="btn-submit">保存</button>
+            </form>
+        </div>
+    </div>
+
     <!-- 切换使用本地存储或API -->
-    <script>
-        // 设置为 'app.js' 使用本地存储，'app-api.js' 使用后端API
-        const SCRIPT_FILE = 'app-api.js';  // 修改这里切换数据源
-    </script>
-    <script src=SCRIPT_FILE></script>
+    <!-- 修改下面的 src 来切换数据源：app.js (本地存储) 或 app-api.js (后端API) -->
+    <script src="app-api.js"></script>
 </body>
 </html>

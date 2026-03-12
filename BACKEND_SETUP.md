@@ -8,14 +8,53 @@
 
 ## 方法一：数据库模式（推荐）
 
-### 1. 安装依赖
+### 🚀 快速启动（一键脚本）
 
-确保已安装 Node.js（建议 v14+），然后安装依赖：
+如果您已安装 Node.js，直接运行启动脚本：
 
 ```bash
 cd /home/zhoumeihua/wholesale_fish_bookkeeping
-npm install
+bash start_backend.sh
 ```
+
+或使用中文脚本：
+
+```bash
+bash 启动后端服务.sh
+```
+
+脚本会自动：
+- ✅ 检查 Node.js 环境
+- ✅ 安装依赖包（首次）
+- ✅ 启动后端服务
+
+---
+
+### 手动启动步骤
+
+#### 1. 检查 Node.js 环境
+
+```bash
+node --version
+npm --version
+```
+
+如果未安装，请先安装：
+
+**Ubuntu/Debian:**
+```bash
+sudo apt update
+sudo apt install nodejs npm
+```
+
+**CentOS/RHEL:**
+```bash
+sudo yum install nodejs npm
+```
+
+或访问 [nodejs.org](https://nodejs.org/) 下载安装
+
+#### 2. 安装依赖
 
 ### 2. 启动后端服务
 

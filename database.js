@@ -99,6 +99,55 @@ function createTables() {
         );
     `);
 
+    // 数据变更记录表
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS change_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            table_name TEXT NOT NULL,
+            record_id INTEGER NOT NULL,
+            operation TEXT NOT NULL CHECK(operation IN ('INSERT', 'UPDATE', 'DELETE')),
+            old_data TEXT,
+            new_data TEXT,
+            changed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            changed_by TEXT DEFAULT 'system'
+        );
+    `);
+
+    // 每月固定支出表
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS monthly_expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            category TEXT NOT NULL CHECK(category IN ('薪资', '车辆费用', '油费', '店面', '水电', '进货成本', '运输费', '包装费', '其他')),
+            amount REAL NOT NULL,
+            payment_method TEXT,
+            description TEXT,
+            is_active INTEGER DEFAULT 1,
+            start_date TEXT NOT NULL,
+            cycle_type TEXT NOT NULL CHECK(cycle_type IN ('monthly', 'quarterly', 'yearly')),
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+    `);
+
+    // 鱼类库存表
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS inventory (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            product_id INTEGER NOT NULL,
+            quantity REAL NOT NULL DEFAULT 0,
+            unit TEXT NOT NULL DEFAULT '斤',
+            supplier TEXT,
+            purchase_price REAL DEFAULT 0,
+            purchase_date TEXT,
+            notes TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+        );
+    `);
+
     // 创建索引提高查询性能
     db.exec(`
         CREATE INDEX IF NOT EXISTS idx_sales_customer ON sales(customer_id);
@@ -106,6 +155,9 @@ function createTables() {
         CREATE INDEX IF NOT EXISTS idx_sales_date ON sales(sale_date);
         CREATE INDEX IF NOT EXISTS idx_expenses_date ON expenses(expense_date);
         CREATE INDEX IF NOT EXISTS idx_expenses_category ON expenses(category);
+        CREATE INDEX IF NOT EXISTS idx_monthly_expenses_active ON monthly_expenses(is_active);
+        CREATE INDEX IF NOT EXISTS idx_inventory_product ON inventory(product_id);
+        CREATE INDEX IF NOT EXISTS idx_inventory_active ON inventory(is_active);
     `);
 
     console.log('数据库表创建完成');
